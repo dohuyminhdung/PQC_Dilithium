@@ -4,10 +4,8 @@ from Crypto.Random import get_random_bytes
 from Crypto.Hash import SHAKE256, SHAKE128
 
 def mod_pm(x: int, m : int) -> int:
-    """
-    Symmetric modulo: x mod^± m
-    Returns a remainder r such that:
-        -m//2 <= r <= m//2
+    """ Symmetric modulo: x mod^± m
+        Returns a remainder r such that: -m//2 <= r <= m//2
     """
     r = x % m
     if r > m // 2:
@@ -15,21 +13,22 @@ def mod_pm(x: int, m : int) -> int:
     return r
 
 def int_to_bytes(x: int, length: int) -> bytes:
+    """Algorithm 11: Convert integer x to bytes."""
     return x.to_bytes(length, 'little')
 
 def int_to_bits(x: int, bitlen: int) -> List[int]:
-    """Convert integer x to list of bits (LSB first)."""
+    """Algorithm 9: Convert integer x to list of bits (LSB first)."""
     return [(x >> i) & 1 for i in range(bitlen)]
 
 def bits_to_int(bits: List[int]) -> int:
-    """Convert a list of bits (LSB first) to integer."""
+    """Algorithm 10: Convert a list of bits (LSB first) to integer."""
     value = 0
     for i, bit in enumerate(bits):
         value |= (bit & 1) << i
     return value
 
 def bits_to_bytes(bits: List[int]) -> bytes:
-    """Convert list of bits (LSB first per byte) to bytes."""
+    """Algorithm 12: Convert list of bits (LSB first per byte) to bytes."""
     out = bytearray()
     for i in range(0, len(bits), 8):
         byte = 0
@@ -40,7 +39,7 @@ def bits_to_bytes(bits: List[int]) -> bytes:
     return bytes(out)
 
 def bytes_to_bits(b: bytes) -> bytes:
-    """Convert bytes to a byte string of raw 0x00 or 0x01 bytes (MSB first)."""
+    """Algorithm 13: Convert bytes to a byte string of raw 0x00 or 0x01 bytes (MSB first)."""
     bits = bytearray()
     for byte in b:
         for i in range(8):  # LSB first
@@ -62,6 +61,39 @@ def H(str: bytes, outlen: int) -> bytes:
     shake = SHAKE256.new()
     shake.update(str)
     return shake.read(outlen)
+
+zetas = [   0, 4808194, 3765607, 3761513, 5178923, 5496691, 5234739, 5178987,
+           7778734, 3542485, 2682288, 2129892, 3764867, 7375178, 557458, 7159240,
+            5010068, 4317364, 2663378, 6705802, 4855975, 7946292, 676590, 7044481,
+            5152541, 1714295, 2453983, 1460718, 7737789, 4795319, 2815639, 2283733,
+            3602218, 3182878, 2740543, 4793971, 5269599, 2101410, 3704823, 1159875,
+            394148, 928749, 1095468, 4874037, 2071829, 4361428, 3241972, 2156050,
+            3415069, 1759347, 7562881, 4805951, 3756790, 6444618, 6663429, 4430364,
+            5483103, 3192354, 556856, 3870317, 2917338, 1853806, 3345963, 1858416,
+            3073009, 1277625, 5744944, 3852015, 4183372, 5157610, 5258977, 8106357,
+            2508980, 2028118, 1937570, 4564692, 2811291, 5396636, 7270901, 4158088,
+            1528066, 482649, 1148858, 5418153, 7814814, 169688, 2462444, 5046034,
+            4213992, 4892034, 1987814, 5183169, 1736313, 235407, 5130263, 3258457,
+            5801164, 1787943, 5989328, 6125690, 3482206, 4197502, 7080401, 6018354,
+            7062739, 2461387, 3035980, 621164, 3901472, 7153756, 2925816, 3374250,
+            1356448, 5604662, 2683270, 5601629, 4912752, 2312838, 7727142, 7921254,
+            348812, 8052569, 1011223, 6026202, 4561790, 6458164, 6143691, 1744507,
+            1753, 6444997, 5720892, 6924527, 2660408, 6600190, 8321269, 2772600,
+            1182243, 87208, 636927, 4415111, 4423672, 6084020, 5095502, 4663471,
+            8352605, 822541, 1009365, 5926272, 6400920, 1596822, 4423473, 4620952,
+            6695264, 4969849, 2678278, 4611469, 4829411, 635956, 8129971, 5925040,
+            4234153, 6607829, 2192938, 6653329, 2387513, 4768667, 8111961, 5199961,
+            3747250, 2296099, 1239911, 4541938, 3195676, 2642980, 1254190, 8368000,
+            2998219, 141835, 8291116, 2513018, 7025525, 613238, 7070156, 6161950,
+            7921677, 6458423, 4040196, 4908348, 2039144, 6500539, 7561656, 6201452,
+            6757063, 2105286, 6006015, 6346610, 586241, 7200804, 527981, 5637006,
+            6903432, 1994046, 2491325, 6987258, 507927, 7192532, 7655613, 6545891,
+            5346675, 8041997, 2647994, 3009748, 5767564, 4148469, 749577, 4357667,
+            3980599, 2569011, 6764887, 1723229, 1665318, 2028038, 1163598, 5011144,
+            3994671, 8368538, 7009900, 3020393, 3363542, 214880, 545376, 7609976,
+            3105558, 7277073, 508145, 7826699, 860144, 3430436, 140244, 6866265,
+            6195333, 3123762, 2358373, 6187330, 5365997, 6663603, 2926054, 7987710,
+            8077412, 3531229, 4405932, 4606686, 1900052, 7598542, 1054478, 7648983  ]
 
 class Dilithium:
     """ Parameters for Dilithium (Default: ML-DSA-87):
@@ -127,6 +159,71 @@ class Dilithium:
             raise ValueError("xi is NULL or not 32 bytes")
         return self.KeyGen_internal(xi)
     
+    def Sign(self, sk: bytes, m: bytes, ctx: bytes) -> bytes:   
+        """
+            Generates an ML-DSA signature
+            Reference: Algorithm 2, FIPS 204 page 18, slide 28
+            Input:  private key sk, message m, context ctx
+                    m is a bit string, this function represents it as byte string
+            Output: signature sigma (bytes)
+        """
+        if len(ctx) > 255:
+            raise ValueError("context length exceeds 255 bytes")
+        rnd = b'\x00' * 32      #either use random seed, for the optional deterministic variant, substitute rnd = {0}^32
+        if not rnd:
+            raise ValueError("rnd is NULL")
+        M_ = bytes_to_bits(int_to_bytes(0, 1) + int_to_bytes(len(ctx), 1) + ctx) + m  
+        sigma = self.Sign_internal(sk, M_, rnd)
+        return sigma
+
+    def Verify(self, pk: bytes, M: bytes, sigma: bytes, ctx: bytes,) -> bool:
+        """
+            Verifies a signature sigma for a message M
+            Reference: Algorithm 3, FIPS 204 page 18, slide 28
+            Input:  public key pk (length of 32 + 32*k*bitlen(q-1)-d), message m, context ctx, signature sigma
+            Output: True if the signature is valid, False otherwise
+        """
+        if len(ctx) > 255:
+            raise ValueError("context length exceeds 255 bytes")
+        M_ = bytes_to_bits(int_to_bytes(0, 1) + int_to_bytes(len(ctx), 1) + ctx) + M
+        return self.Verify_internal(pk, M_, sigma)
+
+    def Hash_Sign(self, sk: bytes, M: bytes, ctx: bytes) -> bytes:
+        """
+            Generate a “pre-hash” ML-DSA signature
+            Reference: Algorithm 4, FIPS 204 page 20, slide 30
+            Input:  private key sk (length of 32 + 32 + 64 + 32*((l+k)*bitlen(2*eta) + d*k)), 
+                    message M, context ctx (<= 255 bytes) 
+                    ##pre-hash function SHA-256##  
+            Output: signature sigma (length of lambda/4 + 32*l*(1+bitlen(gamma1-1)) + omega + k)
+        """
+        if len(ctx) > 255:
+            raise ValueError("context length exceeds 255 bytes")
+        rnd = b'\x00' * 32      #either use random seed, for the optional deterministic variant, substitute rnd = {0}^32
+        if not rnd:
+            raise ValueError("rnd is NULL")
+        OID = bytes([0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01]) #ODI_SHA-256 = 2.16.840.1.101.3.4.2.1
+        PH_M = hashlib.sha256(M).digest()
+        M_ = bytes_to_bits(int_to_bytes(1, 1) + int_to_bytes(len(ctx), 1) + ctx + OID + PH_M)
+        sigma = self.Sign_internal(sk, M_, rnd)
+        return sigma
+
+    def Hash_Verify(self, pk: bytes, M: bytes, sigma: bytes, ctx: bytes) -> bool:
+        """
+            Verifies a pre-hash HashML-DSA signature
+            Reference: Algorithm 5, FIPS 204 page 21, slide 31
+            Input:  public key pk (length of 32 + 32*k*bitlen(q-1)-d), 
+                    message m, context ctx, signature sigma
+                    ##pre-hash function SHA-256##  
+            Output: True if the signature is valid, False otherwise
+        """
+        if len(ctx) > 255:
+            raise ValueError("context length exceeds 255 bytes")
+        OID = bytes([0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01]) #ODI_SHA-256 = 2.16.840.
+        PH_M = hashlib.sha256(M).digest()
+        M_ = bytes_to_bits(int_to_bytes(1, 1) + int_to_bytes(len(ctx), 1) + ctx + OID + PH_M)
+        return self.Verify_internal(pk, M_, sigma)
+    
     def KeyGen_internal(self, xi: bytes) -> tuple[bytes, bytes]:
         """ 
             Generate a public - private key pair from a seed
@@ -163,24 +260,6 @@ class Dilithium:
         sk = self.skEncode(rho, K, tr, s1, s2, t0)
         return pk, sk 
 
-    
-    def Sign(self, sk: bytes, m: bytes, ctx: bytes) -> bytes:   
-        """
-            Generates an ML-DSA signature
-            Reference: Algorithm 2, FIPS 204 page 18, slide 28
-            Input:  private key sk, message m, context ctx
-                    m is a bit string, this function represents it as byte string
-            Output: signature sigma (bytes)
-        """
-        if len(ctx) > 255:
-            raise ValueError("context length exceeds 255 bytes")
-        rnd = b'\x00' * 32      #either use random seed
-        if not rnd:
-            raise ValueError("rnd is NULL")
-        M_ = bytes_to_bits(int_to_bytes(0, 1) + int_to_bytes(len(ctx), 1) + ctx) + m  
-        sigma = self.Sign_internal(sk, M_, rnd)
-        return sigma
-    
     def Sign_internal(self, sk: bytes, M_: bytes, rnd: bytes) -> bytes:
         """
             Deterministic algorithm to generate a signature for a formatted message M_
@@ -235,6 +314,79 @@ class Dilithium:
         z_mod_pm = [[mod_pm(z[i][j], self.q) for j in range(self.n)] for i in range(self.l)]
         sigma = self.SigEncode(_c, z_mod_pm, h)
         return sigma
+
+    def Verify_internal(self, pk: bytes, M_: bytes, sigma: bytes) -> bool:
+        """
+            Internal function to verify a signature sigma for a formatted message M'
+            Reference: Algorithm 8: Signature verification, FIPS 204 page 27, slide 37
+            Input:  Public key pk (length of 32 + 32*k*(bitlen(q-1)-d) bytes), formatted message M_, 
+                    signature sigma (length of lambda/4 + 32*l*(1+bitlen(gamma1-1)) + omega + k)
+            Output: True if the signature is valid, False otherwise
+        """
+        rho, t1 = self.pkDecode(pk)
+        _c, z, h = self.SigDecode(sigma)    # c~, z, h
+        if h == [[0]*self.n for _ in range(self.k)]:
+            return False
+        A_ = self.ExpandA(rho)  # A^ in T_q^{k x l} 
+        tr = H(pk, 64)
+        mu = H(bytes_to_bits(tr) + M_, 64)
+        c = self.SampleInBall(_c)
+
+        # w'_Approx = NTT^{−1}(A^ * NTT(z) − NTT(c) * NTT(t1 * 2d)) => w' = Az - ct1 * 2^d
+        z_ntt = [self.NTT(poly) for poly in z]
+        c_ntt = self.NTT(c)
+        t1_mul_2_power_d = [[t1[i][j] * (2 ** self.d) % self.q for j in range(256)] for i in self.k]
+        t1_mul_2_power_d_ntt = [self.NTT(poly) for poly in t1_mul_2_power_d]
+        A_mul_z_ntt = self.MatrixVectorNTT(A_, z_ntt) 
+        ct1_mul_2_power_d_ntt = self.ScalarVectorNTT(c_ntt, t1_mul_2_power_d_ntt)
+        w__Approx_ntt = [[ (A_mul_z_ntt[i][j] - ct1_mul_2_power_d_ntt[i][j]) % self.q for j in range (256) ] for i in range (self.k) ]
+        w__Approx = [self.NTT_inv(poly) for poly in w__Approx_ntt]
+        w_1 = [[self.UseHint(h[i][j], w__Approx[i][j]) for j in range(256)] for i in range(self.k)] # w1' = UseHint(h, w'_Approx)
+        _c_ = H(mu + self.w1Encode(w_1), self.lambda_ // 4) # c~' = H(mu||w1Encode(w'1), lambda/4)
+        return (self.infinityNorm(z) < self.gamma1 - self.beta) and (_c == _c_)
+
+    """
+        Computes a base-2 representation of x mod 2^a using little-endian order.
+        Reference: Algorithm 9: IntegerToBits(x, a), FIPS 204 page 28, slide 38
+        Input:  Integer x and a
+        Output: A list of bits representing x mod 2^a
+        This function is defined outside Dilithium class
+        => def int_to_bits(x: int, bitlen: int) -> List[int]:
+    """
+
+    """
+        Computes the integer value expressed by a bit string using little-endian order
+        Reference: Algorithm 10: BitsToInteger(y, a), FIPS 204 page 28, slide 38
+        Input: A positive integer a and a bit string y of length a.
+        Output: A nonnegative integer x.
+        This function is defined outside Dilithium class
+        => def bits_to_int(bits: List[int]) -> int:
+    """
+
+    """
+        Computes a base-256 representation of x mod 256^a using little-endian order.
+        Reference: Algorithm 11: IntegerToBytes(x, a), FIPS 204 page 28, slide 38
+        Input:  Integer x and a
+        Output: A byte string y of length a
+        This function is defined outside Dilithium class
+        => def int_to_bytes(x: int, length: int) -> bytes:
+    """
+
+    """
+        Converts a bit string into a byte string using little-endian order.
+        Reference: Algorithm 12: BitsToBytes(y), FIPS 204 page 29, slide 39
+        Input:  A bit string y of length a
+        Output: A byte string of length a/8
+        This function is defined outside Dilithium class
+        => def bits_to_bytes(bits: List[int]) -> bytes:
+    """
+
+    """
+        Converts a byte string into a bit string using little-endian order.
+        Reference: Algorithm 13: BytesToBits(z), FIPS 204 page 29, slide 39
+        This function is defined outside Dilithium class
+        => def bytes_to_bits(b: bytes) -> bytes:
+    """
 
     def CoeffFromThreeBytes(self, b0: int, b1: int, b2: int) -> int:
         """
@@ -293,7 +445,24 @@ class Dilithium:
         for i in range(0, 256):
             z.extend(int_to_bits(b - w[i], bitlen(a + b)))
         return bits_to_bytes(z)
-        
+
+    def SimpleBitUnpack(self, v: bytes, b: int) -> List[int]:
+        """
+            Reverses the procedure of SimpleBitPack
+            Reference: Algorithm 18: Simple bit unpacking, FIPS 204 page 31, slide 41
+            Input:  integer b and v is a byte string of length 32 * bitlen(b)
+            Output: A polynomial w in R_q with coefficients in [0, 2^c - 1] where c = bitlen(b)
+                    When b + 1 is a power of 2, the coefficients are in [0, b].
+        """
+        c = bitlen(b)
+        z = bytes_to_bits(v)
+        w = []
+        for i in range(0, 256):
+            wi = z[i * c : (i + 1) * c]
+            val = bits_to_int(wi)
+            w.append(val)
+        return w
+
     def BitUnpack(self, v: bytes, a: int, b: int) -> List[int]:
         """
             Reverses the procedure of BitPack
@@ -360,13 +529,29 @@ class Dilithium:
             Encode a public key for ML-DSA into a byte string
             Reference: Algorithm 22: Public key encoding, FIPS 204 page 33, slide 43
             Input: rho (32 bytes), t1 (list of k polynomials in R_q^k) with coefficients in [0, 2^(23-1-d)-1])
-            Output: public key pk (a byte string of length 32 + k*(23-1-d-1) bytes)
+            Output: public key pk (a byte string of length 32 + 32*k*(bitlen(q-1)-d) bytes)
         """
-        #TODO:  implement this function
         pk = rho
         for i in range(self.k):
             pk = pk + Dilithium.SimpleBitPack(t1[i], 2 ** (bitlen(self.q - 1) - self.d)  - 1)
         return pk
+    
+    def pkDecode(self, pk: bytes) -> tuple[bytes, List[List[int]]]:
+        """
+            Reverses the procedure pkEncode
+            Reference: Algorithm 23: Public key decoding, FIPS 204 page 33, slide 43
+            Input: public key pk (a byte string of length 32 + 32*k*(bitlen(q-1)-d) bytes)
+            Output: rho (32 bytes), t1 (list of k polynomials in R_q^k) with coefficients in [0, 2^(bitlen(q-1)-d)-1])
+        """
+        rho = pk[0:32]
+        offset = 32
+        t1 = []
+        for i in range(self.k):
+            size = 32 * (bitlen(self.q - 1) - self.d)
+            zi = pk[offset : offset + size]; offset += size
+            poly = self.SimpleBitUnpack(zi, 2 ** (bitlen(self.q - 1) - self.d) - 1)
+            t1.append(poly)
+        return rho, t1
     
     def skEncode(self, rho: bytes, K: bytes, tr: bytes, s1: List[List[int]], s2: List[List[int]], t0: List[List[int]]) -> bytes:
         """
@@ -672,22 +857,8 @@ class Dilithium:
             return (r1 - 1) % m
         return r1
 
-    @staticmethod
-    def bitRev(n: int) -> int:
-        """
-            Transforms a byte by reversing the order of bits in its 8-bit binary expansion.
-            Reference: Algorithm 43: Bit-reversal permutation, FIPS 204 page 44, slide 54
-            Input: Integer n in [0, 255]
-            Output: Integer result in [0, 255] whose binary expansion is the reverse of that of n
-        """
-        result = 0
-        while n > 0:
-            result = (result << 1) | (n & 1)
-            n >>= 1
-        return result
-
-    def zetas(self, m: int) -> int:
-        return pow(self.zeta, Dilithium.bitRev(m), self.q)
+    # def zetas(self, m: int) -> int:
+    #     return pow(self.zeta, Dilithium.bitRev(m), self.q)
 
     def NTT(self, w: List[int]) -> List[int]:
         """ 
@@ -705,7 +876,7 @@ class Dilithium:
             start = 0
             while start < 256:
                 m = m + 1
-                z = self.zetas(m)
+                z = zetas[m]
                 for j in range (start, start + len - 1):
                     t = (z * ans[j + len]) % self.q
                     ans[j + len] = (ans[j] - t) % self.q
@@ -730,7 +901,7 @@ class Dilithium:
             start = 0
             while start < 256:
                 m = m - 1
-                z = self.zetas(m)
+                z = zetas[m]
                 for j in range (start, start + len - 1):
                     t = ans[j]
                     ans[j] = (t + ans[j + len]) % self.q
@@ -742,6 +913,20 @@ class Dilithium:
         for j in range(0, 256):
             ans[j] = (f * ans[j]) % self.q 
         return ans
+    
+    @staticmethod
+    def bitRev(n: int) -> int:
+        """
+            Transforms a byte by reversing the order of bits in its 8-bit binary expansion.
+            Reference: Algorithm 43: Bit-reversal permutation, FIPS 204 page 44, slide 54
+            Input: Integer n in [0, 255]
+            Output: Integer result in [0, 255] whose binary expansion is the reverse of that of n
+        """
+        result = 0
+        while n > 0:
+            result = (result << 1) | (n & 1)
+            n >>= 1
+        return result
     
     def AddNTT(self, a: List[int], b: List[int]) -> List[int]:
         """ 
@@ -804,5 +989,15 @@ class Dilithium:
                 ans[i] = self.AddNTT(ans[i], self.MultiplyNTT(M[i][j], v[j]))
         return ans
     
-    
+    def MontgomeryReduce(self, a: int) -> int:
+        """
+            Computes a * 2^{-32} mod q.
+            Reference: Algorithm 49: Montgomery reduction, FIPS 204 page 50, slide 60
+            Input: Integer a in [-2^{-31}*q, 2^{-31}*q]
+            Output: r = a * 2^{-32} mod q
+        """
+        QINV = 58728449 # the inverse of 𝑞 modulo 2^32
+        t = ((a % (2**32)) * QINV) % (2**32)
+        r = (a - t * self.q) // (2**32)
+        return r
              
