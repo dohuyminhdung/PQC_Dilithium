@@ -1,7 +1,7 @@
 from typing import List
 import hashlib
 from Crypto.Random import get_random_bytes
-from Crypto.Hash import SHAKE256, SHAKE128
+# from Crypto.Hash import SHAKE256, SHAKE128
 
 def mod_pm(x: int, m : int) -> int:
     """ Symmetric modulo: x mod^± m
@@ -12,38 +12,44 @@ def mod_pm(x: int, m : int) -> int:
         r = r - m
     return r
 
-def int_to_bytes(x: int, length: int) -> bytes:
-    """Algorithm 11: Convert integer x to bytes."""
-    return x.to_bytes(length, 'little')
+def little_to_big_endian(b: bytes) -> bytes:
+    """Converts a little-endian byte string to big-endian."""
+    # When using library, the library will handle endian when mapping to state.
+    return b[::-1]
 
 def int_to_bits(x: int, bitlen: int) -> List[int]:
-    """Algorithm 9: Convert integer x to list of bits (LSB first)."""
+    """Algorithm 9: Convert integer x to list of bits (little-endian order)."""
     return [(x >> i) & 1 for i in range(bitlen)]
 
 def bits_to_int(bits: List[int]) -> int:
-    """Algorithm 10: Convert a list of bits (LSB first) to integer."""
+    """Algorithm 10: Computes the integer value expressed by a bit string using little-endian order."""
     value = 0
     for i, bit in enumerate(bits):
         value |= (bit & 1) << i
     return value
 
-def bits_to_bytes(bits: List[int]) -> bytes:
-    """Algorithm 12: Convert list of bits (LSB first per byte) to bytes."""
+def int_to_bytes(x: int, length: int) -> bytes:
+    """Algorithm 11: Convert integer x to bytes."""
+    return x.to_bytes(length, 'little')
+
+def bits_to_bytes(bits: bytes) -> bytes:
+    """Algorithm 12: Converts a bit string into a byte string using little-endian order."""
     out = bytearray()
     for i in range(0, len(bits), 8):
         byte = 0
         for j in range(8):
             if i + j < len(bits):
-                byte |= (bits[i + j] & 1) << j
+                bit = bits[i + j] & 1
+                byte |= bit << j
         out.append(byte)
     return bytes(out)
 
 def bytes_to_bits(b: bytes) -> bytes:
-    """Algorithm 13: Convert bytes to a byte string of raw 0x00 or 0x01 bytes (MSB first)."""
+    """Algorithm 13: Converts a byte string into a bit string using little-endian order."""
     bits = bytearray()
     for byte in b:
-        for i in range(8):  # LSB first
-            bits.append((byte >> i) & 1)
+        for j in range(8):
+            bits.append((byte >> j) & 1)
     return bytes(bits)
 
 def bitlen(x: int) -> int:
@@ -53,47 +59,50 @@ def bitlen(x: int) -> int:
 
 def H(str: bytes, outlen: int) -> bytes:
     """ 
-        Hash function H(str, l) = SHAKE256(str, 8*l)
-        Reference: FIPS 204, page 14, slide 24
         Input: str is a byte string of any length, outlen is the desired output length in bytes
         Output: A byte string of length outlen
     """
-    shake = SHAKE256.new()
-    shake.update(str)
-    return shake.read(outlen)
+    return hashlib.shake_256(str).digest(outlen)
 
-zetas = [   0, 4808194, 3765607, 3761513, 5178923, 5496691, 5234739, 5178987,
-           7778734, 3542485, 2682288, 2129892, 3764867, 7375178, 557458, 7159240,
-            5010068, 4317364, 2663378, 6705802, 4855975, 7946292, 676590, 7044481,
-            5152541, 1714295, 2453983, 1460718, 7737789, 4795319, 2815639, 2283733,
-            3602218, 3182878, 2740543, 4793971, 5269599, 2101410, 3704823, 1159875,
-            394148, 928749, 1095468, 4874037, 2071829, 4361428, 3241972, 2156050,
-            3415069, 1759347, 7562881, 4805951, 3756790, 6444618, 6663429, 4430364,
-            5483103, 3192354, 556856, 3870317, 2917338, 1853806, 3345963, 1858416,
-            3073009, 1277625, 5744944, 3852015, 4183372, 5157610, 5258977, 8106357,
-            2508980, 2028118, 1937570, 4564692, 2811291, 5396636, 7270901, 4158088,
-            1528066, 482649, 1148858, 5418153, 7814814, 169688, 2462444, 5046034,
-            4213992, 4892034, 1987814, 5183169, 1736313, 235407, 5130263, 3258457,
-            5801164, 1787943, 5989328, 6125690, 3482206, 4197502, 7080401, 6018354,
-            7062739, 2461387, 3035980, 621164, 3901472, 7153756, 2925816, 3374250,
-            1356448, 5604662, 2683270, 5601629, 4912752, 2312838, 7727142, 7921254,
-            348812, 8052569, 1011223, 6026202, 4561790, 6458164, 6143691, 1744507,
-            1753, 6444997, 5720892, 6924527, 2660408, 6600190, 8321269, 2772600,
-            1182243, 87208, 636927, 4415111, 4423672, 6084020, 5095502, 4663471,
-            8352605, 822541, 1009365, 5926272, 6400920, 1596822, 4423473, 4620952,
-            6695264, 4969849, 2678278, 4611469, 4829411, 635956, 8129971, 5925040,
-            4234153, 6607829, 2192938, 6653329, 2387513, 4768667, 8111961, 5199961,
-            3747250, 2296099, 1239911, 4541938, 3195676, 2642980, 1254190, 8368000,
-            2998219, 141835, 8291116, 2513018, 7025525, 613238, 7070156, 6161950,
-            7921677, 6458423, 4040196, 4908348, 2039144, 6500539, 7561656, 6201452,
-            6757063, 2105286, 6006015, 6346610, 586241, 7200804, 527981, 5637006,
-            6903432, 1994046, 2491325, 6987258, 507927, 7192532, 7655613, 6545891,
-            5346675, 8041997, 2647994, 3009748, 5767564, 4148469, 749577, 4357667,
-            3980599, 2569011, 6764887, 1723229, 1665318, 2028038, 1163598, 5011144,
-            3994671, 8368538, 7009900, 3020393, 3363542, 214880, 545376, 7609976,
-            3105558, 7277073, 508145, 7826699, 860144, 3430436, 140244, 6866265,
-            6195333, 3123762, 2358373, 6187330, 5365997, 6663603, 2926054, 7987710,
-            8077412, 3531229, 4405932, 4606686, 1900052, 7598542, 1054478, 7648983  ]
+def G(str: bytes, outlen: int) -> bytes:
+    """ 
+        Input: str is a byte string of any length, outlen is the desired output length in bytes
+        Output: A byte string of length outlen
+    """
+    return hashlib.shake_128(str).digest(outlen)
+
+zetas = [   0,          4808194,    3765607,    3761513,    5178923,    5496691,    5234739,    5178987,
+            7778734,    3542485,    2682288,    2129892,    3764867,    7375178,    557458,     7159240,
+            5010068,    4317364,    2663378,    6705802,    4855975,    7946292,    676590,     7044481,
+            5152541,    1714295,    2453983,    1460718,    7737789,    4795319,    2815639,    2283733,
+            3602218,    3182878,    2740543,    4793971,    5269599,    2101410,    3704823,    1159875,
+            394148,     928749,     1095468,    4874037,    2071829,    4361428,    3241972,    2156050,
+            3415069,    1759347,    7562881,    4805951,    3756790,    6444618,    6663429,    4430364,
+            5483103,    3192354,    556856,     3870317,    2917338,    1853806,    3345963,    1858416,
+            3073009,    1277625,    5744944,    3852015,    4183372,    5157610,    5258977,    8106357,
+            2508980,    2028118,    1937570,    4564692,    2811291,    5396636,    7270901,    4158088,
+            1528066,    482649,     1148858,    5418153,    7814814,    169688,     2462444,    5046034,
+            4213992,    4892034,    1987814,    5183169,    1736313,    235407,     5130263,    3258457,
+            5801164,    1787943,    5989328,    6125690,    3482206,    4197502,    7080401,    6018354,
+            7062739,    2461387,    3035980,    621164,     3901472,    7153756,    2925816,    3374250,
+            1356448,    5604662,    2683270,    5601629,    4912752,    2312838,    7727142,    7921254,
+            348812,     8052569,    1011223,    6026202,    4561790,    6458164,    6143691,    1744507,
+            1753,       6444997,    5720892,    6924527,    2660408,    6600190,    8321269,    2772600,
+            1182243,    87208,      636927,     4415111,    4423672,    6084020,    5095502,    4663471,
+            8352605,    822541,     1009365,    5926272,    6400920,    1596822,    4423473,    4620952,
+            6695264,    4969849,    2678278,    4611469,    4829411,    635956,     8129971,    5925040,
+            4234153,    6607829,    2192938,    6653329,    2387513,    4768667,    8111961,    5199961,
+            3747250,    2296099,    1239911,    4541938,    3195676,    2642980,    1254190,    8368000,
+            2998219,    141835,     8291116,    2513018,    7025525,    613238,     7070156,    6161950,
+            7921677,    6458423,    4040196,    4908348,    2039144,    6500539,    7561656,    6201452,
+            6757063,    2105286,    6006015,    6346610,    586241,     7200804,    527981,     5637006,
+            6903432,    1994046,    2491325,    6987258,    507927,     7192532,    7655613,    6545891,
+            5346675,    8041997,    2647994,    3009748,    5767564,    4148469,    749577,     4357667,
+            3980599,    2569011,    6764887,    1723229,    1665318,    2028038,    1163598,    5011144,
+            3994671,    8368538,    7009900,    3020393,    3363542,    214880,     545376,     7609976,
+            3105558,    7277073,    508145,     7826699,    860144,     3430436,    140244,     6866265,
+            6195333,    3123762,    2358373,    6187330,    5365997,    6663603,    2926054,    7987710,
+            8077412,    3531229,    4405932,    4606686,    1900052,    7598542,    1054478,    7648983 ]
 
 class Dilithium:
     """ Parameters for Dilithium (Default: ML-DSA-87):
@@ -147,7 +156,7 @@ class Dilithium:
             return max(self.infinityNorm(row) for row in obj)
         raise ValueError("Unsupported type for infinityNorm")
     
-    def KeyGen(self):
+    def KeyGen(self) -> tuple[bytes, bytes]:
         """ 
             Generate a public - private key pair
             Reference: Algorithm 1: Key generation, FIPS 204 page 17, slide 27
@@ -172,11 +181,11 @@ class Dilithium:
         rnd = b'\x00' * 32      #either use random seed, for the optional deterministic variant, substitute rnd = {0}^32
         if not rnd:
             raise ValueError("rnd is NULL")
-        M_ = bytes_to_bits(int_to_bytes(0, 1) + int_to_bytes(len(ctx), 1) + ctx) + m  
+        M_ = (int_to_bytes(0, 1) + int_to_bytes(len(ctx), 1) + ctx) + m  
         sigma = self.Sign_internal(sk, M_, rnd)
         return sigma
 
-    def Verify(self, pk: bytes, M: bytes, sigma: bytes, ctx: bytes,) -> bool:
+    def Verify(self, pk: bytes, M: bytes, sigma: bytes, ctx: bytes) -> bool:
         """
             Verifies a signature sigma for a message M
             Reference: Algorithm 3, FIPS 204 page 18, slide 28
@@ -185,7 +194,7 @@ class Dilithium:
         """
         if len(ctx) > 255:
             raise ValueError("context length exceeds 255 bytes")
-        M_ = bytes_to_bits(int_to_bytes(0, 1) + int_to_bytes(len(ctx), 1) + ctx) + M
+        M_ = (int_to_bytes(0, 1) + int_to_bytes(len(ctx), 1) + ctx) + M
         return self.Verify_internal(pk, M_, sigma)
 
     def Hash_Sign(self, sk: bytes, M: bytes, ctx: bytes) -> bytes:
@@ -204,7 +213,7 @@ class Dilithium:
             raise ValueError("rnd is NULL")
         OID = bytes([0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01]) #ODI_SHA-256 = 2.16.840.1.101.3.4.2.1
         PH_M = hashlib.sha256(M).digest()
-        M_ = bytes_to_bits(int_to_bytes(1, 1) + int_to_bytes(len(ctx), 1) + ctx + OID + PH_M)
+        M_ = (int_to_bytes(1, 1) + int_to_bytes(len(ctx), 1) + ctx + OID + PH_M)
         sigma = self.Sign_internal(sk, M_, rnd)
         return sigma
 
@@ -221,7 +230,7 @@ class Dilithium:
             raise ValueError("context length exceeds 255 bytes")
         OID = bytes([0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01]) #ODI_SHA-256 = 2.16.840.
         PH_M = hashlib.sha256(M).digest()
-        M_ = bytes_to_bits(int_to_bytes(1, 1) + int_to_bytes(len(ctx), 1) + ctx + OID + PH_M)
+        M_ = (int_to_bytes(1, 1) + int_to_bytes(len(ctx), 1) + ctx + OID + PH_M)
         return self.Verify_internal(pk, M_, sigma)
     
     def KeyGen_internal(self, xi: bytes) -> tuple[bytes, bytes]:
@@ -272,17 +281,17 @@ class Dilithium:
         s2_ntt = [self.NTT(poly) for poly in s2]
         t0_ntt = [self.NTT(poly) for poly in t0]
         A_ntt = self.ExpandA(rho)
-
-        mu = H(bytes_to_bits(tr) + M_, 64)
+        mu = H(tr + M_, 64)
         rho__ = H(K + rnd + mu, 64)
+
         kappa = 0
         z = [[0]*self.n for _ in range(self.l)]
         h = [0] * 256
-
         _c = b''
         h = []
         found = False
-        while not found:
+
+        while found == False:
             y = self.ExpandMask(rho__, kappa)
             y_ntt = [self.NTT(poly) for poly in y]
             A_mul_y_NTT = self.MatrixVectorNTT(A_ntt, y_ntt)
@@ -300,7 +309,8 @@ class Dilithium:
             
             w_sub_cs2 = self.AddVectorNTT(w, [[-inner_product_cs2[i][j] for j in range(self.n)] for i in range(self.k)]) # w - c * s2 in R_q^k
             r0 = [[self.LowBits(w_sub_cs2[i][j]) for j in range(self.n)] for i in range(self.k)] # r0 = LowBits(w - c * s2) in R_q^k
-            if self.infinityNorm(z) >= (self.gamma1 - self.beta) or self.infinityNorm(r0) >= self.gamma2 - self.beta:
+
+            if (self.infinityNorm(z) >= (self.gamma1 - self.beta)) or (self.infinityNorm(r0) >= (self.gamma2 - self.beta)):
                 kappa = kappa + self.l
                 continue
             else:
@@ -308,9 +318,11 @@ class Dilithium:
                 inner_product_ct0 = [self.NTT_inv(poly) for poly in c_mul_t0_ntt] # c * t0 in R_q^k
                 h = [[self.MakeHint(-inner_product_ct0[i][j], w[i][j] - inner_product_cs2[i][j] + inner_product_ct0[i][j])
                       for j in range(self.n)] for i in range(self.k)] # h = MakeHint(-c * t0, w - c * s2 + c * t0) in {0, 1}^n
-                if self.infinityNorm(inner_product_ct0) > self.gamma2 or sum(sum(row) for row in h) > self.omega:
+                if (self.infinityNorm(inner_product_ct0) >= self.gamma2) or (sum(sum(row) for row in h) > self.omega):
                     kappa = kappa + self.l
                     continue
+                else:
+                    found = True
         z_mod_pm = [[mod_pm(z[i][j], self.q) for j in range(self.n)] for i in range(self.l)]
         sigma = self.SigEncode(_c, z_mod_pm, h)
         return sigma
@@ -329,13 +341,13 @@ class Dilithium:
             return False
         A_ = self.ExpandA(rho)  # A^ in T_q^{k x l} 
         tr = H(pk, 64)
-        mu = H(bytes_to_bits(tr) + M_, 64)
+        mu = H(tr + M_, 64)
         c = self.SampleInBall(_c)
 
         # w'_Approx = NTT^{−1}(A^ * NTT(z) − NTT(c) * NTT(t1 * 2d)) => w' = Az - ct1 * 2^d
         z_ntt = [self.NTT(poly) for poly in z]
         c_ntt = self.NTT(c)
-        t1_mul_2_power_d = [[t1[i][j] * (2 ** self.d) % self.q for j in range(256)] for i in self.k]
+        t1_mul_2_power_d = [[t1[i][j] * (2 ** self.d) % self.q for j in range(256)] for i in range(self.k)]
         t1_mul_2_power_d_ntt = [self.NTT(poly) for poly in t1_mul_2_power_d]
         A_mul_z_ntt = self.MatrixVectorNTT(A_, z_ntt) 
         ct1_mul_2_power_d_ntt = self.ScalarVectorNTT(c_ntt, t1_mul_2_power_d_ntt)
@@ -430,7 +442,7 @@ class Dilithium:
         z = []
         for i in range(0, 256):
             z.extend(int_to_bits(w[i], b))  # append b bits of w[i]
-        return bits_to_bytes(z)
+        return bits_to_bytes(bytes(z))
     
     @staticmethod
     def BitPack(w: List[int], a: int, b: int) -> bytes:
@@ -444,7 +456,7 @@ class Dilithium:
         z = []
         for i in range(0, 256):
             z.extend(int_to_bits(b - w[i], bitlen(a + b)))
-        return bits_to_bytes(z)
+        return bits_to_bytes(bytes(z))
 
     def SimpleBitUnpack(self, v: bytes, b: int) -> List[int]:
         """
@@ -459,7 +471,7 @@ class Dilithium:
         w = []
         for i in range(0, 256):
             wi = z[i * c : (i + 1) * c]
-            val = bits_to_int(wi)
+            val = bits_to_int(list(wi))
             w.append(val)
         return w
 
@@ -666,18 +678,18 @@ class Dilithium:
             Output: An polynomial c in R_q (list of 256 coefficients in R_q)
         """
         if not rho:
-            raise ValueError("_c is NULL")
+            raise ValueError("c~ is NULL")
         # if len(rho) * 8 < self.tau * (self.tau + 1).bit_length():
         #     raise ValueError("length of _c is too small")
         c = [0] * 256
-        ctx = SHAKE256.new()    # H.Init
-        ctx.update(rho)         # H.Absorb(ctx, rho)
-        s = ctx.read(8)         # H.Squeeze(ctx, 8)
-        h = bytes_to_bits(s)    # bit array LSB first 
+        ctx = hashlib.shake_256()   # H.Init
+        ctx.update(rho)             # H.Absorb(ctx, rho)
+        s = ctx.digest(8)           # H.Squeeze(ctx, 8)
+        h = bytes_to_bits(s)        # bit array LSB first, recheck that h has to be a bit string of length 64
         for i in range(256 - self.tau, 256):
-            j = ctx.read(1)     # H.Squeeze(ctx, 1)
+            j = ctx.digest(1)     # H.Squeeze(ctx, 1)
             while j[0] > i:
-                j = ctx.read(1) # H.Squeeze(ctx, 1)
+                j = ctx.digest(1) # H.Squeeze(ctx, 1)
             c[i] = c[j[0]]
             c[j[0]] = (-1) ** h[i + self.tau - 256]
         return c
@@ -693,10 +705,10 @@ class Dilithium:
             raise ValueError("rho is NULL")
         ans = [0] * 256
         j = 0
-        ctx = SHAKE128.new()    #G.Init
-        ctx.update(rho)         #G.Absorb(ctx, rho)
+        ctx = hashlib.shake_128()   #G.Init
+        ctx.update(rho)             #G.Absorb(ctx, rho)
         while j < 256:
-            s = ctx.read(3)     #G.Squeeze(ctx, 3)
+            s = ctx.digest(3)       #G.Squeeze(ctx, 3)
             ans[j] = self.CoeffFromThreeBytes(s[0], s[1], s[2])
             if ans[j] != -1:
                 j = j + 1
@@ -713,10 +725,10 @@ class Dilithium:
             raise ValueError("seed is NULL")
         ans = [0] * 256
         j = 0
-        ctx = SHAKE256.new()   #H.Init
-        ctx.update(seed)       #H.Absorb(ctx, seed)
+        ctx = hashlib.shake_256()   #H.Init
+        ctx.update(seed)            #H.Absorb(ctx, seed)
         while j < 256:
-            z = ctx.read(1)  #H.Squeeze(ctx, 1)
+            z = ctx.digest(1)       #H.Squeeze(ctx, 1)
             z0 = self.CoeffFromHalfByte(z[0] % 16)
             z1 = self.CoeffFromHalfByte(z[0] // 16)
             if z0 != -1:
@@ -768,7 +780,7 @@ class Dilithium:
         """ 
             Samples vector y in R_q^l with coefficients in [-gamma1 + 1, gamma1]
             Reference: Algorithm 34: Sampling the vector y, FIPS 204 page 38, slide 48
-            Input: rho is a 64-byte seed, kappa is a non-negative integer
+            Input: rho is a 64-byte seed, mu is a non-negative integer
             Output: Vector y of polynomials in R_q
                     Each entry is a polynomial (list of 256 coefficients mod q)
         """
@@ -877,7 +889,7 @@ class Dilithium:
             while start < 256:
                 m = m + 1
                 z = zetas[m]
-                for j in range (start, start + len - 1):
+                for j in range (start, start + len):
                     t = (z * ans[j + len]) % self.q
                     ans[j + len] = (ans[j] - t) % self.q
                     ans[j] = (ans[j] + t) % self.q
@@ -897,19 +909,19 @@ class Dilithium:
             ans[j] = w[j]
         m = 256
         len = 1
-        while len <= 256:
+        while len < 256:
             start = 0
             while start < 256:
                 m = m - 1
                 z = zetas[m]
-                for j in range (start, start + len - 1):
+                for j in range (start, start + len):
                     t = ans[j]
                     ans[j] = (t + ans[j + len]) % self.q
                     ans[j + len] = (t - ans[j + len]) % self.q
                     ans[j + len] = (z * ans[j + len]) % self.q
                 start = start + 2 * len
             len = len * 2
-        f = 8347681
+        f = 8347681 # f = 256^{-1} mod q
         for j in range(0, 256):
             ans[j] = (f * ans[j]) % self.q 
         return ans
