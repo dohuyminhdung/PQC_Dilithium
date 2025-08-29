@@ -1,7 +1,7 @@
 from typing import List
 import hashlib
 from Crypto.Random import get_random_bytes
-# from Crypto.Hash import SHAKE256, SHAKE128
+from Crypto.Hash import SHAKE256, SHAKE128
 
 def mod_pm(x: int, m : int) -> int:
     """ Symmetric modulo: x mod^± m
@@ -32,7 +32,7 @@ def int_to_bytes(x: int, length: int) -> bytes:
     """Algorithm 11: Convert integer x to bytes."""
     return x.to_bytes(length, 'little')
 
-def bits_to_bytes(bits: bytes) -> bytes:
+def bits_to_bytes(bits: List[int]) -> bytes:
     """Algorithm 12: Converts a bit string into a byte string using little-endian order."""
     out = bytearray()
     for i in range(0, len(bits), 8):
@@ -44,13 +44,13 @@ def bits_to_bytes(bits: bytes) -> bytes:
         out.append(byte)
     return bytes(out)
 
-def bytes_to_bits(b: bytes) -> bytes:
+def bytes_to_bits(b: bytes) -> List[int]:
     """Algorithm 13: Converts a byte string into a bit string using little-endian order."""
-    bits = bytearray()
+    bits: List[int] = []
     for byte in b:
         for j in range(8):
             bits.append((byte >> j) & 1)
-    return bytes(bits)
+    return bits
 
 def bitlen(x: int) -> int:
     if x == 0:
@@ -62,14 +62,18 @@ def H(str: bytes, outlen: int) -> bytes:
         Input: str is a byte string of any length, outlen is the desired output length in bytes
         Output: A byte string of length outlen
     """
-    return hashlib.shake_256(str).digest(outlen)
+    shake = SHAKE256.new()
+    shake.update(str)
+    return shake.read(outlen)
 
 def G(str: bytes, outlen: int) -> bytes:
     """ 
         Input: str is a byte string of any length, outlen is the desired output length in bytes
         Output: A byte string of length outlen
     """
-    return hashlib.shake_128(str).digest(outlen)
+    shake = SHAKE128.new()
+    shake.update(str)
+    return shake.read(outlen)
 
 zetas = [   0,          4808194,    3765607,    3761513,    5178923,    5496691,    5234739,    5178987,
             7778734,    3542485,    2682288,    2129892,    3764867,    7375178,    557458,     7159240,
@@ -436,13 +440,14 @@ class Dilithium:
         """
             Encode a polynomial w into a byte string
             Reference: Algorithm 16: Simple bit packing, FIPS 204 page 30, slide 40
-            Input: w is a polynomial in R_q with coefficients in [0, b-1]
+            Input: integer b and w is a polynomial in R_q with coefficients in [0, b]
             Output: A byte string of length 32 * bitlen(b)
         """ 
-        z = []
+        z: List[int] = []
+        length = bitlen(b)
         for i in range(0, 256):
-            z.extend(int_to_bits(w[i], b))  # append b bits of w[i]
-        return bits_to_bytes(bytes(z))
+            z.extend(int_to_bits(w[i], length))  # append b bits of w[i]
+        return bits_to_bytes(z)
     
     @staticmethod
     def BitPack(w: List[int], a: int, b: int) -> bytes:
@@ -453,10 +458,10 @@ class Dilithium:
                     w is a polynomial in R_q with coefficients in [-a, b]
             Output: A byte string of length 32 * bitlen(a + b)
         """ 
-        z = []
+        z: List[int] = []
         for i in range(0, 256):
             z.extend(int_to_bits(b - w[i], bitlen(a + b)))
-        return bits_to_bytes(bytes(z))
+        return bits_to_bytes(z)
 
     def SimpleBitUnpack(self, v: bytes, b: int) -> List[int]:
         """
@@ -468,10 +473,10 @@ class Dilithium:
         """
         c = bitlen(b)
         z = bytes_to_bits(v)
-        w = []
+        w: List[int] = []
         for i in range(0, 256):
             wi = z[i * c : (i + 1) * c]
-            val = bits_to_int(list(wi))
+            val = bits_to_int(wi)
             w.append(val)
         return w
 
@@ -485,8 +490,8 @@ class Dilithium:
                     When a + b + 1 is a power of 2, the coefficients are in [-a, b] 
         """ 
         c = bitlen(a + b)
-        z = list(bytes_to_bits(v)) # bit array LSB first
-        w = []
+        z = bytes_to_bits(v) # bit array LSB first
+        w: List[int] = []
         for i in range(0, 256):
             coeff_bits = z[i * c : (i + 1) * c]
             val = bits_to_int(coeff_bits)
@@ -682,14 +687,14 @@ class Dilithium:
         # if len(rho) * 8 < self.tau * (self.tau + 1).bit_length():
         #     raise ValueError("length of _c is too small")
         c = [0] * 256
-        ctx = hashlib.shake_256()   # H.Init
-        ctx.update(rho)             # H.Absorb(ctx, rho)
-        s = ctx.digest(8)           # H.Squeeze(ctx, 8)
-        h = bytes_to_bits(s)        # bit array LSB first, recheck that h has to be a bit string of length 64
+        ctx = SHAKE256.new()    # H.Init
+        ctx.update(rho)         # H.Absorb(ctx, rho)
+        s = ctx.read(8)         # H.Squeeze(ctx, 8)
+        h = bytes_to_bits(s)    # bit array LSB first, recheck that h has to be a bit string of length 64
         for i in range(256 - self.tau, 256):
-            j = ctx.digest(1)     # H.Squeeze(ctx, 1)
+            j = ctx.read(1)     # H.Squeeze(ctx, 1)
             while j[0] > i:
-                j = ctx.digest(1) # H.Squeeze(ctx, 1)
+                j = ctx.read(1) # H.Squeeze(ctx, 1)
             c[i] = c[j[0]]
             c[j[0]] = (-1) ** h[i + self.tau - 256]
         return c
@@ -705,10 +710,10 @@ class Dilithium:
             raise ValueError("rho is NULL")
         ans = [0] * 256
         j = 0
-        ctx = hashlib.shake_128()   #G.Init
-        ctx.update(rho)             #G.Absorb(ctx, rho)
+        ctx = SHAKE128.new()    #G.Init
+        ctx.update(rho)         #G.Absorb(ctx, rho)
         while j < 256:
-            s = ctx.digest(3)       #G.Squeeze(ctx, 3)
+            s = ctx.read(3)     #G.Squeeze(ctx, 3)
             ans[j] = self.CoeffFromThreeBytes(s[0], s[1], s[2])
             if ans[j] != -1:
                 j = j + 1
@@ -725,10 +730,10 @@ class Dilithium:
             raise ValueError("seed is NULL")
         ans = [0] * 256
         j = 0
-        ctx = hashlib.shake_256()   #H.Init
-        ctx.update(seed)            #H.Absorb(ctx, seed)
+        ctx = SHAKE256.new()    #H.Init
+        ctx.update(seed)        #H.Absorb(ctx, seed)
         while j < 256:
-            z = ctx.digest(1)       #H.Squeeze(ctx, 1)
+            z = ctx.read(1)     #H.Squeeze(ctx, 1)
             z0 = self.CoeffFromHalfByte(z[0] % 16)
             z1 = self.CoeffFromHalfByte(z[0] // 16)
             if z0 != -1:
@@ -913,7 +918,7 @@ class Dilithium:
             start = 0
             while start < 256:
                 m = m - 1
-                z = zetas[m]
+                z = 0 -zetas[m]
                 for j in range (start, start + len):
                     t = ans[j]
                     ans[j] = (t + ans[j + len]) % self.q
