@@ -3,6 +3,16 @@ import hashlib
 from Crypto.Random import get_random_bytes
 from Crypto.Hash import SHAKE256, SHAKE128
 
+def print_hex(label: str, data: bytes):
+    length = len(data)
+    print(f"{label} ({length} bytes):")
+    for i in range(length):
+        print(f"{data[i]:02X}", end="")
+        if (i + 1) % 128 == 0:
+            print()  # New line after every 128 bytes
+    if length % 128 != 0:
+        print()     # New line at the end if not already done
+
 def mod_pm(x: int, m : int) -> int:
     """ Symmetric modulo: x mod^± m
         Returns a remainder r such that: -m//2 <= r <= m//2
@@ -11,11 +21,6 @@ def mod_pm(x: int, m : int) -> int:
     if r > m // 2:
         r = r - m
     return r
-
-def little_to_big_endian(b: bytes) -> bytes:
-    """Converts a little-endian byte string to big-endian."""
-    # When using library, the library will handle endian when mapping to state.
-    return b[::-1]
 
 def int_to_bits(x: int, bitlen: int) -> List[int]:
     """Algorithm 9: Convert integer x to list of bits (little-endian order)."""
@@ -123,16 +128,19 @@ class Dilithium:
         gamma2 = (q - 1)/32     controls the level of noise in the signature.
         lambda_ = 256           the security level in bits
         omega = 75              number of nonzero coefficients in the hint polynomial h
+        zeta = 1753             512-th primitive root of unity in Z_q
     """
     """ Others parameters:
-        zeta = 1753              512-th primitive root of unity in Z_q
-        zetainv = 587            zeta^-1 mod q
+        rnd_seed_for_signing:   the flag for enable random seed or using optional deterministic variant
+        rnd:                    deterministic variant seed
+        print_matrix:           the flag for enable printing matrix
     """
     def __init__(self, q = 2**23 - 2**13 + 1, n = 256, 
                        k = 8, l = 7, eta = 2, d = 13, 
                        gamma1 = 2**19, tau = 60, beta = 120,
                        gamma2 = (2**23 - 2**13 + 1 - 1)//32,
-                       lambda_ = 256, omega = 75, zeta = 1753):
+                       lambda_ = 256, omega = 75, zeta = 1753,
+                       rnd_seed_for_signing = 1, rnd = b'\x00' * 32, print_matrix = 0):
         self.q = q
         self.n = n
         self.k = k
@@ -146,7 +154,9 @@ class Dilithium:
         self.lambda_ = lambda_
         self.omega = omega
         self.zeta = zeta
-        self.zetainv = pow(zeta, q - 2, q)  # zeta^-1 mod q
+        self.rnd_seed_for_signing = rnd_seed_for_signing
+        self.rnd = rnd
+        self.print_matrix = print_matrix
 
     def infinityNorm(self, obj) -> int:
         """Compute infinity norm"""
@@ -182,7 +192,13 @@ class Dilithium:
         """
         if len(ctx) > 255:
             raise ValueError("context length exceeds 255 bytes")
-        rnd = b'\x00' * 32      #either use random seed, for the optional deterministic variant, substitute rnd = {0}^32
+        if not self.rnd_seed_for_signing:
+            rnd = self.rnd              #optional deterministic variant, substitute rnd = {0}^32           
+        else:
+            rnd = get_random_bytes(32)  #either use random seed 
+            if self.print_matrix == 1:
+                print_hex("Seed in sign key: ", rnd)
+            
         if not rnd:
             raise ValueError("rnd is NULL")
         M_ = (int_to_bytes(0, 1) + int_to_bytes(len(ctx), 1) + ctx) + m  
@@ -250,8 +266,24 @@ class Dilithium:
         rho_prime = hash[32:96]
         K = hash[96:128]
 
-        A = self.ExpandA(rho)      
+        A = self.ExpandA(rho)
+        if self.print_matrix == 1:
+            print("A = [")
+            for row in A:
+                print(row)
+            print(']')
+
         s1, s2 = self.ExpandS(rho_prime)
+        if self.print_matrix == 1:
+            print("s1 =[")
+            for row in s1:
+                print(row)
+            print(']')
+
+            print("s2 =[")
+            for row in s2:
+                print(row)
+            print(']')
 
         s1_ntt = [self.NTT(poly) for poly in s1]
         A_mul_s1_NTT = self.MatrixVectorNTT(A, s1_ntt)
@@ -271,6 +303,22 @@ class Dilithium:
         pk = self.pkEncode(rho, t1)
         tr = H(pk, 64)
         sk = self.skEncode(rho, K, tr, s1, s2, t0)
+
+        if self.print_matrix == 1:
+            print("t =[")
+            for row in t:
+                print(row)
+            print(']')
+
+            print("t1 =[")
+            for row in t1:
+                print(row)
+            print(']')
+
+            print("t0 =[")
+            for row in t0:
+                print(row)
+            print(']')
         return pk, sk 
 
     def Sign_internal(self, sk: bytes, M_: bytes, rnd: bytes) -> bytes:
@@ -326,6 +374,23 @@ class Dilithium:
                     kappa = kappa + self.l
                     continue
                 else:
+                    if self.print_matrix == 1:
+                        print("y =[")
+                        for row in y:
+                            print(row)
+                        print(']')
+
+                        print("w =[")
+                        for row in w:
+                            print(row)
+                        print(']')
+
+                        print("w1 =[")
+                        for row in w1:
+                            print(row)
+                        print(']')
+
+                        print("c =", c)
                     found = True
         z_mod_pm = [[mod_pm(z[i][j], self.q) for j in range(self.n)] for i in range(self.l)]
         sigma = self.SigEncode(_c, z_mod_pm, h)

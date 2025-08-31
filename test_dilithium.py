@@ -3,9 +3,14 @@ import sys
 import random
 import os
 
-ML_DSA_87 = Dilithium()
+ML_DSA_87 = Dilithium(rnd_seed_for_signing=1,
+                      rnd = b'\x00' * 32,
+                      print_matrix=0)
+
 ctx = b"test_dilithium"
 NTESTS = 10000
+MIN_MSG_LEN = 10
+MAX_MSG_LEN = 10000 
 
 if __name__ == "__main__":
 
@@ -15,7 +20,7 @@ if __name__ == "__main__":
     with open("output.txt", "w", encoding="utf-8") as f:
         sys.stdout = f
         for i in range(NTESTS):
-            MLEN = random.randint(10, 10000)  
+            MLEN = random.randint(MIN_MSG_LEN, MAX_MSG_LEN)  
             msg = os.urandom(MLEN)
 
             pk, sk = ML_DSA_87.KeyGen()
