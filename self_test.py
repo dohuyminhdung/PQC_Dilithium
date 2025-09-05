@@ -30,11 +30,11 @@ def test(xi, msg, ctx):
         print_hex("Secret key: \n", sk)
 
         signature = ML_DSA_87.Sign(sk, msg, ctx)
-        # signature = ML_DSA_87.Hash_Sign(sk, m, ctx)
+        # signature = ML_DSA_87.Hash_Sign(sk, msg, ctx)
         print_hex("Signature: \n", signature)
 
         valid = ML_DSA_87.Verify(pk, msg, signature, ctx)
-        # valid = ML_DSA_87.Hash_Verify(pk, m, signature, ctx)
+        # valid = ML_DSA_87.Hash_Verify(pk, msg, signature, ctx)
         print("Signature valid: ", str(valid))
 
         sys.stdout = sys.__stdout__ 
