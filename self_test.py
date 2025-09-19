@@ -40,7 +40,9 @@ def test(xi, msg, ctx):
         sys.stdout = sys.__stdout__ 
 
 if __name__ == "__main__":
-    test(xi, msg, ctx)
+    #test(xi, msg, ctx)
+    for b in range (16):
+        print(f"{b} => {2 - (b % 5)}")
 
 
 

@@ -745,7 +745,7 @@ class Dilithium:
             Samples a polynomial c in R_q with coefficients in {-1, 0, 1} and Hamming weight tau <= 64
             Reference: Algorithm 29: Sampling the challenge polynomial c, FIPS 204 page 36, slide 46
             Input: rho (typically lambda/4 bytes from H(mu || w1Encode(w1)) in Sign)
-            Output: An polynomial c in R_q (list of 256 coefficients in R_q)
+            Output: A polynomial c in R_q (list of 256 coefficients in R_q)
         """
         if not rho:
             raise ValueError("c~ is NULL")

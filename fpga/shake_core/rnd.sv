@@ -36,7 +36,7 @@ module rnd_core #(
     // -------------------------
     function [LANE-1:0] rol;
         input [LANE-1:0] v;
-        input integer     sh;
+        input integer   sh;
         begin
             // assume sh in 0..(LANE-1)
             rol = (v << sh) | (v >> (LANE - sh));
