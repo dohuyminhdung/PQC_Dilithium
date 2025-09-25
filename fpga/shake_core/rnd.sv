@@ -1,4 +1,24 @@
 `timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: HCMUT
+// Engineer: Dung Do
+// 
+// Create Date: 10/07/2025 02:58:31 AM
+// Design Name: 
+// Module Name: rnd_core
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
 // rnd_core.v
 // Keccak round core - 8-stage pipeline
 // Stage summary (stage index là pipeline stage after posedge):
@@ -36,7 +56,7 @@ module rnd_core #(
     // -------------------------
     function [LANE-1:0] rol;
         input [LANE-1:0] v;
-        input integer   sh;
+        input integer     sh;
         begin
             // assume sh in 0..(LANE-1)
             rol = (v << sh) | (v >> (LANE - sh));

@@ -32,7 +32,7 @@ module keccak_p #(
     };
     
     reg                         active; 
-    reg  [$clog2(STEP_RND):0]   step_cnt;  
+    reg  [$clog2(STEP_RND)-1:0] step_cnt;  
     reg                         rnd_en;
     wire                        rnd_done;
     reg  [STATE_W-1:0]          state_reg;

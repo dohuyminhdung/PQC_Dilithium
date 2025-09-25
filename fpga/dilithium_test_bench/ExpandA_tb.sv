@@ -34,6 +34,8 @@ module ExpandA_tb;
     );
 
     // Test instance
+    integer i, j;
+
     initial clk = 0;
     always #5 clk = ~clk;
 

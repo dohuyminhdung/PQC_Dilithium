@@ -1,11 +1,13 @@
 `timescale 1ns / 1ps
 //Input:
 //in_valid announce that data_in is a valid data, note that not all cycle we do feed data to the module
-//in_last announce that this data_in is the last block, we need to pad this data_in if needed
-//last_len notify the len of last block
+//in_last announce that this data_in is the last block, we need to pad this data_in
+//in_last_len notify the len of last block
 //out_ready announce that user is ready to get the squeezed data
 //Output:
 //out_valid announe that data_out is a valid data, note that not all cycle the module have the squeezed data
+//out_last announce that this data_out is the last block, also next clock will be the permute state
+//out_last_len notify the len of last block
 //in_ready announce that the module is ready to accept new data, note that while absorbing data, the module may not be ready to accept new data
 module sponge #(
     parameter LANE          = 64,
@@ -15,19 +17,24 @@ module sponge #(
     parameter CAPACITY      = 512, //default is SHAKE256/SHA3-256
     parameter RATE          = STATE_W - CAPACITY,
     parameter DATA_IN_BITS  = 64,
-    parameter DATA_OUT_BITS = 64 
+    parameter DATA_OUT_BITS = 64 //The minimum squeezed data is 4 bytes
 )(
     input  wire                             clk,
     input  wire                             rst,
     input  wire [DATA_IN_BITS-1:0]          data_in,
     input  wire                             in_valid, 
     input  wire                             in_last, 
-    input  wire [$clog2(DATA_IN_BITS):0]    last_len,
+    input  wire [$clog2(DATA_IN_BITS)-1:0]  in_last_len,
     input  wire                             out_ready,   
     output reg  [DATA_OUT_BITS-1:0]         data_out,
     output reg                              out_valid,
+    output reg                              out_last,
+    output wire [$clog2(DATA_OUT_BITS)-1:0] out_last_len,
     output reg                              in_ready
     );
+    localparam OUT_LAST_LEN = (RATE % DATA_OUT_BITS) == 0 ? DATA_OUT_BITS : (RATE % DATA_OUT_BITS);
+    assign out_last_len = OUT_LAST_LEN;
+    
     // ------------------------------------------------------------
     // FSM state encoding
     // ------------------------------------------------------------
@@ -55,11 +62,11 @@ module sponge #(
 
     // ------------------------------------------------------------
     // Signals for Padding State
-    reg  [$clog2(DATA_IN_BITS):0]   last_len_buffer;
+    reg  [$clog2(DATA_IN_BITS)-1:0] last_len_buffer;
     reg                             overflow;           // indicate that the last padding operation cause overflow
     reg                             overflow_last_pad;  // last padding before squeeze if overflow
 
-    //ab=absorb_block, abc=absorb_block_cnt, dib=DATA_IN_BITS, llb=last_len, x=dont care    
+    //ab=absorb_block, abc=absorb_block_cnt, dib=DATA_IN_BITS, llb=in_last_len, x=dont care    
     // Normal case:
     // expect:  [10*1][1111]     [ll-1:0](di)[abc-dib-1:0](ab)
     // ab    =  [(RATE-abc){x}]  [abc-1:0](ab)
@@ -197,6 +204,7 @@ module sponge #(
             // Output signals
             data_out    <= 32'hDEADCAFE;
             out_valid   <= 1'b0;
+            out_last    <= 1'b0;
             in_ready    <= 1'b1;
 
             // keccak instance signals
@@ -224,6 +232,7 @@ module sponge #(
                     // Output signals
                     data_out    <= 32'hDEADBEEF;
                     out_valid   <= 1'b0;
+                    out_last    <= 1'b0;
                     in_ready    <= 1'b1;
 
                     // keccak instance signals
@@ -263,8 +272,8 @@ module sponge #(
                         end
                         
                         if (in_last) begin //look ahead for next padding state
-                            last_len_buffer <= last_len;
-                            if (absorb_block_cnt + last_len + 6 > RATE) begin //padding => permute => padding => permute => squeeze
+                            last_len_buffer <= in_last_len;
+                            if (absorb_block_cnt + in_last_len + 6 > RATE) begin //padding => permute => padding => permute => squeeze
                                 overflow <= 1;
                                 overflow_last_pad <= 0;
                             end else begin //else padding => permute => squeeze
@@ -285,11 +294,14 @@ module sponge #(
                     in_ready  <= 0;
                     out_valid <= 1;
                     if (out_ready) begin
-                        data_out  <= state_reg[squeeze_block_cnt +: DATA_OUT_BITS];
-                        squeeze_block_cnt <= squeeze_out;
                         if (squeeze_out >= RATE) begin
-                           //out_valid <= 1'b0;
-                           keccak_en <= 1'b1; // start permute for next squeeze block
+                            out_last <= 1'b1;
+                            keccak_en <= 1'b1; // start permute for next squeeze block
+                            data_out  <= { {(DATA_OUT_BITS - OUT_LAST_LEN){1'b0}}, 
+                                            state_reg[squeeze_block_cnt +: OUT_LAST_LEN]};
+                        end else begin
+                            data_out  <= state_reg[squeeze_block_cnt +: DATA_OUT_BITS];
+                            squeeze_block_cnt <= squeeze_out;
                         end
                     end
                 end
@@ -298,6 +310,7 @@ module sponge #(
                     in_ready  <= 1'b0;
                     out_valid <= 1'b0;
                     keccak_en <= 1'b0; 
+                    out_last <= 1'b0;
                     if (keccak_done) begin
                         case (permute_mode)
                             2'b00: begin //absorb
