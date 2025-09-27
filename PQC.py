@@ -779,6 +779,8 @@ class Dilithium:
         ctx.update(rho)         #G.Absorb(ctx, rho)
         while j < 256:
             s = ctx.read(3)     #G.Squeeze(ctx, 3)
+            # if(self.print_matrix == 1):
+            #     print(s.hex())
             ans[j] = self.CoeffFromThreeBytes(s[0], s[1], s[2])
             if ans[j] != -1:
                 j = j + 1
@@ -823,6 +825,8 @@ class Dilithium:
         for r in range(self.k):
             for s in range(self.l):
                 rho_prime = rho + int_to_bytes(s, 1) + int_to_bytes(r, 1)
+                # if(self.print_matrix == 1):
+                #     print("rho' =", rho_prime.hex())
                 A[r][s] = self.RejNTTPoly(rho_prime)
         return A
     

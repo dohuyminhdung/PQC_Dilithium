@@ -58,7 +58,7 @@ module ExpandMask #(
     // Absorb state
     reg  [$clog2(`SEED_SIZE) : 0]       feed_cnt;
     // Squeeze state
-    reg  [ADDR_WIDTH-1:0]               squeeze_cnt; //[0, 17], tracking current state
+    reg  [ADDR_WIDTH-1:0]               squeeze_cnt; //[0, 17], tracking current block
     reg  [ADDR_WIDTH-1:0]               addr_squeeze; //input writing to RAM
     // Unpack state
     reg  [ADDR_WIDTH-1:0]               addr_unpack; //[0, 17], number blocks used
@@ -213,7 +213,6 @@ module ExpandMask #(
                 ABSORB: begin
                     //Total feed bits = 66 * 8 = 528 < 1088
                     //feed_cnt <= feed_cnt + DATA_IN_BITS;
-                    out_ready <= 0;
                     in_valid <= 1;
                     //in_last <= 0;
                     out_ready <= 0;

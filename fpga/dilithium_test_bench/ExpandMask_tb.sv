@@ -86,7 +86,7 @@ module ExpandMask_tb;
         .in_ready(in_ready)
     );
 
-    //un-used signals
+    //dp_ram_true signals
     localparam int TOTAL_COEFF = L * N;
     localparam int TOTAL_COEFF_WIDTH = $clog2(TOTAL_COEFF);
     logic [23:0]                    dout_a = 0;
@@ -112,7 +112,7 @@ module ExpandMask_tb;
     );
 
     integer i;
-    integer fd;;
+    integer fd;
 
     initial clk = 0;
     always #5 clk = ~clk;
@@ -144,20 +144,20 @@ module ExpandMask_tb;
             $finish;
         end
 
-        $fdisplay(fd, "--------------------------------------");
-        $fdisplay(fd, "  Dump memory: %0d words", (1<<vector_y.ADDR_WIDTH));
-        $fdisplay(fd, "  Format: index | decimal | hex");
-        $fdisplay(fd, "--------------------------------------");
+        // $fdisplay(fd, "--------------------------------------");
+        // $fdisplay(fd, "  Dump memory: %0d words", (1<<vector_y.ADDR_WIDTH));
+        // $fdisplay(fd, "  Format: index | decimal | hex");
+        // $fdisplay(fd, "--------------------------------------");
+        $fdisplay(fd, "ExpandMask output:");
 
         for (i = 0; i < (1<<vector_y.ADDR_WIDTH); i = i + 1) begin
-            $fdisplay(fd, "%4d : %10d | 0x%0h", i, $signed(vector_y.mem[i]), vector_y.mem[i]);
+            // $fdisplay(fd, "%4d : %10d | 0x%0h", i, $signed(vector_y.mem[i]), vector_y.mem[i]);
+            $fdisplay(fd, "%0d: %0d", i, $signed(vector_y.mem[i]));
         end
 
-        $fdisplay(fd, "--------------------------------------");
+        // $fdisplay(fd, "--------------------------------------");
         $fclose(fd);
         $display("Simulation done");
         #50 $finish;
-
     end
-
 endmodule

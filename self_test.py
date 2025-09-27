@@ -58,11 +58,18 @@ def test_rejection_bounded_poly():
     print("Rejection_Bounded_Poly output: \n", ans)
 
 def test_expandA():
-    rho = b'\xDD\xDD\xCC\xCC\xBB\xBB\xAA\xAA' * 4  #32 bytes
+    rho = b'\xef\xcd\xab\x90\x78\x56\x34\x12' * 4  #32 bytes
+    i = 0
     A = ML_DSA_87.ExpandA(rho)
-    print("ExpandA output:")
-    for row in A:
-        print(row)
+    with open("output.txt", "w", encoding="utf-8") as f:
+        sys.stdout = f
+        print("ExpandA output:")
+        for row in A:
+            for poly in row:
+                for coeff in poly:
+                    print(f"{i}: {coeff}")
+                    i = i + 1
+        sys.stdout = sys.__stdout__ 
 
 def test_expandS():
     rho = b'\xDD\xDD\xCC\xCC\xBB\xBB\xAA\xAA' * 8  #64 bytes
@@ -88,13 +95,31 @@ def test_expandMask():
                 i += 1
         sys.stdout = sys.__stdout__ 
 
+def compare_output(file1, file2):
+    with open(file1, 'r', encoding='utf-8') as f1, open(file2, 'r', encoding='utf-8') as f2:
+        lines1 = f1.readlines()
+        lines2 = f2.readlines()
+        compare_length = min(len(lines1), len(lines2))
+
+        for i in range (compare_length):
+            line1 = lines1[i].rstrip("\n")
+            line2 = lines2[i].rstrip("\n")
+
+            if line1 != line2:
+                print(f"Difference found at line {i+1}:")
+                print(f"File1: {line1}")
+                print(f"File2: {line2}")
+                sys.exit(1)
+    print("Files are identical.")
+
 if __name__ == "__main__":
     # test_sample_in_ball()
     # test_rejection_NTT_poly()
     # test_rejection_bounded_poly()
     # test_expandA()
     # test_expandS()
-    test_expandMask()
+    # test_expandMask()
+    compare_output("G:/Y4S1/DATN/PQC_Dilithium/output.txt", "G:/Y4S1/DATN/PQC_Dilithium/fpga/dilithium_test_bench/mem_dump.txt")
     # test_full_scheme(xi, msg, ctx)
 
 
