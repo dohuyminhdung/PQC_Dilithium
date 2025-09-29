@@ -498,7 +498,7 @@ class Dilithium:
             if self.eta == 4 and b < 9:
                 return 4 - b
             else:
-                return -1
+                return -100
         
     @staticmethod
     def SimpleBitPack(w: List[int], b: int) -> bytes:
@@ -801,12 +801,15 @@ class Dilithium:
         ctx.update(seed)        #H.Absorb(ctx, seed)
         while j < 256:
             z = ctx.read(1)     #H.Squeeze(ctx, 1)
+            # if(self.print_matrix == 1): print(z.hex())
             z0 = self.CoeffFromHalfByte(z[0] % 16)
             z1 = self.CoeffFromHalfByte(z[0] // 16)
-            if z0 != -1:
+            if z0 != -100:
+                # if(self.print_matrix == 1): print("z0 = ", z[0] % 16)
                 ans[j] = z0
                 j = j + 1
-            if z1 != -1 and j < 256:
+            if z1 != -100 and j < 256:
+                # if(self.print_matrix == 1): print("z1 = ", z[0] // 16)
                 ans[j] = z1
                 j = j + 1
         return ans

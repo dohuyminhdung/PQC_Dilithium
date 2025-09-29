@@ -72,14 +72,23 @@ def test_expandA():
         sys.stdout = sys.__stdout__ 
 
 def test_expandS():
-    rho = b'\xDD\xDD\xCC\xCC\xBB\xBB\xAA\xAA' * 8  #64 bytes
-    s1, s2 = ML_DSA_87.ExpandS(rho)
-    print("ExpandS output (s1):")
-    for row in s1:
-        print(row)
-    print("ExpandS output (s2):")
-    for row in s2:
-        print(row)
+    rho = b'\xef\xcd\xab\x90\x78\x56\x34\x12' * 8  #64 bytes
+    with open("output.txt", "w", encoding="utf-8") as f:
+        sys.stdout = f
+        i = 0
+        s1, s2 = ML_DSA_87.ExpandS(rho)
+        print("ExpandS output:")
+        for row in s1:
+            for coeff in row:
+                if(coeff < 0): print(f"{i}: {8380417 + coeff}")
+                else: print(f"{i}: {coeff}")
+                i += 1
+        for row in s2:
+            for coeff in row:
+                if(coeff < 0): print(f"{i}: {8380417 + coeff}")
+                else: print(f"{i}: {coeff}")
+                i += 1
+        sys.stdout = sys.__stdout__ 
 
 def test_expandMask():
     rho = b'\xef\xcd\xab\x90\x78\x56\x34\x12' * 8  #64 bytes
@@ -121,5 +130,3 @@ if __name__ == "__main__":
     # test_expandMask()
     compare_output("G:/Y4S1/DATN/PQC_Dilithium/output.txt", "G:/Y4S1/DATN/PQC_Dilithium/fpga/dilithium_test_bench/mem_dump.txt")
     # test_full_scheme(xi, msg, ctx)
-
-

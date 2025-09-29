@@ -48,7 +48,7 @@ module RejNTTPoly #(
     // absorb state
     reg [$clog2(SEED_SIZE) : 0] feed_cnt;
     // squeeze state
-    localparam int SQUEEZE_BLOCK = 1344 / DATA_IN_BITS; 
+    localparam int SQUEEZE_BLOCK = 1344 / DATA_OUT_BITS; 
     reg  [ADDR_WIDTH-1:0]               squeeze_cnt; //[0, 21], tracking current block
     reg  [ADDR_WIDTH-1:0]               addr_squeeze; //input writing to RAM
     // unpack state

@@ -283,8 +283,8 @@ module sponge #(
 
                 SQUEEZE_DATA: begin
                     in_ready  <= 0;
-                    out_valid <= 1;
                     if (out_ready) begin
+                        out_valid <= 1;
                         data_out  <= state_reg[squeeze_block_cnt +: DATA_OUT_BITS];
                         squeeze_block_cnt <= squeeze_out;
                         if (squeeze_out >= RATE) begin

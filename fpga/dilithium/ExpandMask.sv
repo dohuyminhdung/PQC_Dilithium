@@ -5,11 +5,9 @@
 // Output: Vector y of polynomials in R_q
 //         Each entry is a polynomial (list of 256 coefficients mod q)
 
-//SHALL NOT MODIFY THESE MACRO
-`define SEED_SIZE 64 * 8
-`define RHO_PRIME 66 * 8
-
 module ExpandMask #(
+    parameter int SEED_SIZE = 64 * 8, //SHALL NOT MODIFY
+    parameter int RHO_PRIME = 66 * 8, //SHALL NOT MODIFY 
     parameter int L = 7,
     parameter int N = 256,
     parameter int GAMMA1 = 19, // actually gamma1 = 2^this_parameter
@@ -27,7 +25,7 @@ module ExpandMask #(
     input  wire                             clk,
     input  wire                             rst,
     input  wire                             start,
-    input  wire [`SEED_SIZE-1 : 0]          rho,
+    input  wire [SEED_SIZE-1 : 0]          rho,
     input  wire [15 : 0]                    mu,
     output wire                             done,
     
@@ -50,14 +48,15 @@ module ExpandMask #(
     input  wire                             out_valid,
     input  wire                             in_ready
 );
-    localparam int IN_LAST_LEN = (`RHO_PRIME % DATA_IN_BITS) == 0 ? DATA_IN_BITS : (`RHO_PRIME % DATA_IN_BITS);
+    localparam int IN_LAST_LEN = (RHO_PRIME % DATA_IN_BITS) == 0 ? DATA_IN_BITS : (RHO_PRIME % DATA_IN_BITS);
     assign last_len = IN_LAST_LEN;
 
     localparam integer gamma1 = (1 << GAMMA1);
 
     // Absorb state
-    reg  [$clog2(`SEED_SIZE) : 0]       feed_cnt;
+    reg  [$clog2(SEED_SIZE) : 0]       feed_cnt;
     // Squeeze state
+    localparam int SQUEEZE_BLOCK = 1088 / DATA_OUT_BITS;
     reg  [ADDR_WIDTH-1:0]               squeeze_cnt; //[0, 17], tracking current block
     reg  [ADDR_WIDTH-1:0]               addr_squeeze; //input writing to RAM
     // Unpack state
@@ -69,7 +68,7 @@ module ExpandMask #(
     reg  [$clog2(N) : 0]                                coeff_cnt;//0 => 256
     wire [15:0] mu_plus_r;      //IntegerToBytes(mu+r, 2)
     assign mu_plus_r = mu + poly_cnt; //step 3 of Algorithm 34: rho' = rho||IntegerToBytes(mu+r, 2)
-    assign done = poly_cnt >= L;    assign done = (poly_cnt >= L);
+    assign done = poly_cnt >= L;
                  
     // ------------------------------------------------------------
     // Signals for BRAM cache
@@ -129,7 +128,7 @@ module ExpandMask #(
             end
 
             SQUEEZE: begin
-                if (squeeze_cnt >= 17)
+                if (squeeze_cnt >= SQUEEZE_BLOCK)
                     next_state = UNPACK;
             end
 
@@ -138,7 +137,7 @@ module ExpandMask #(
                     next_state = IDLE;
                 else if (coeff_cnt >= 256)
                     next_state = ABSORB;
-                else if (addr_unpack >= 17) 
+                else if (addr_unpack >= SQUEEZE_BLOCK) 
                     next_state = SQUEEZE;
                 
             end
@@ -224,7 +223,7 @@ module ExpandMask #(
                     we_vector_y <= 0;
 
                     if (in_ready) begin
-                        if(feed_cnt >= `SEED_SIZE) begin
+                        if(feed_cnt >= SEED_SIZE) begin
                             in_last <= 1;
                             shake_data_in <= mu_plus_r;
                         end else begin
