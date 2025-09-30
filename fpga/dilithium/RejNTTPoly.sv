@@ -14,7 +14,8 @@ module RejNTTPoly #(
     parameter int DATA_OUT_BITS = 64,//should divisible by 8
     //parameter for BRAM cache instance
     parameter int ADDR_WIDTH = $clog2(1344 / DATA_OUT_BITS),
-    parameter int DATA_WIDTH = DATA_OUT_BITS
+    parameter int DATA_WIDTH = DATA_OUT_BITS,
+    parameter int ADDR_POLY_WIDTH = $clog2(K*L*N*COEFF_WIDTH/WORD_LEN)
 )(
     input  wire                             clk,
     input  wire                             rst,
@@ -57,6 +58,9 @@ module RejNTTPoly #(
     reg  [UNPACK_BUFFER_SIZE-1:0]                       unpack_buffer;
     reg  [$clog2(UNPACK_BUFFER_SIZE)-1 : 0]             unpack_buffer_left;
     reg  [$clog2(N) : 0]                                coeff_cnt;//0 => 256
+    localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;
+    reg [WORD_LEN-1:0]          coeff_per_word;
+    reg [$clog2(WORD_LEN):0]    coeff_per_word_cnt;
 
     // ------------------------------------------------------------
     // Signals for BRAM cache
@@ -100,9 +104,6 @@ module RejNTTPoly #(
     end
 
     always @* begin
-        // ------------------------------------------------------------
-        // Next-state logic
-        // ------------------------------------------------------------
         next_state = state;
         done = 0;
         case (state)
@@ -155,6 +156,8 @@ module RejNTTPoly #(
             unpack_buffer <= 0;
             unpack_buffer_left <= 0;
             coeff_cnt <= 0;
+            coeff_per_word <= 0;
+            coeff_per_word_cnt <= 0;
 
             //cache signals
             we_squeeze <= 0;
@@ -183,6 +186,8 @@ module RejNTTPoly #(
                     unpack_buffer <= 0;
                     unpack_buffer_left <= 0;
                     coeff_cnt <= 0;
+                    coeff_per_word <= 0;
+                    coeff_per_word_cnt <= 0;
 
                     //cache signals
                     we_squeeze <= 0;
@@ -191,7 +196,7 @@ module RejNTTPoly #(
                 ABSORB: begin
                     //34 * 8 = 272 < RATE = 1344 => absorb_block will never overflow
                     //feed_cnt <= feed_cnt + DATA_IN_BITS;
-                    in_valid <= 1;
+                    // in_valid <= 1;
                     //in_last <= 0;
                     out_ready <= 0;
                     squeeze_cnt <= 0;
@@ -201,6 +206,7 @@ module RejNTTPoly #(
                     we_matA <= 0;
 
                     if(in_ready) begin
+                        in_valid <= 1;
                         if(feed_cnt + DATA_IN_BITS < SEED_SIZE) begin
                             shake_data_in <= rho[feed_cnt +: DATA_IN_BITS];
                             feed_cnt <= feed_cnt + DATA_IN_BITS;
@@ -241,27 +247,27 @@ module RejNTTPoly #(
                     addr_squeeze <= 0;
                     we_squeeze <= 0;
                     // addr_unpack <= offset(k,l,n) = k*(L*N) + l*N + n;
-                    // we_matA <= 0;
+                    we_matA <= 0;
 
                     if (coeff_cnt < N) begin
                         if(unpack_buffer_left < COEFF_WIDTH) begin
                             unpack_buffer <= unpack_buffer | (dout_unpack << unpack_buffer_left);
                             unpack_buffer_left <= unpack_buffer_left + DATA_OUT_BITS;
                             addr_unpack <= addr_unpack + 1;
-                        end else begin
-                            din_matA <= unpack_buffer[0+:23];
+                        end else if (coeff_per_word_cnt >= WORD_LEN) begin
+                            we_matA <= 1;
+                            din_matA <= coeff_per_word;
+                            addr_matA <= (k*(L*N) + l*N + coeff_cnt) >> 2;
+                            coeff_cnt <= coeff_cnt + COEFF_PER_WORD;
+                            coeff_per_word_cnt <= 0;
+                        end else begin    
                             unpack_buffer_left <= unpack_buffer_left - 24;
                             unpack_buffer <= unpack_buffer >> 24;
-                            addr_matA <= k*(L*N) + l*N + coeff_cnt; 
-
                         // A14: Coeff gen from 3 bytes (p.29) applied here
                         // [22:0] b2b1b0 < Q ? accept : reject;
                             if(unpack_buffer[0+:23] < Q) begin //sample
-                                we_matA <= 1;
-                                coeff_cnt <= coeff_cnt + 1;
-                            end else begin //unpack_buffer[0+:24] >= Q  //reject
-                                we_matA <= 0;
-                                coeff_cnt <= coeff_cnt;
+                                coeff_per_word_cnt <= coeff_per_word_cnt + COEFF_WIDTH;
+                                coeff_per_word[coeff_per_word_cnt+:COEFF_WIDTH] <= COEFF_WIDTH'(unpack_buffer[0+:23]);
                             end
                         end
                     end

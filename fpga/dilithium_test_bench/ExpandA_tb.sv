@@ -10,7 +10,8 @@ module ExpandA_tb;
     localparam COEFF_WIDTH = 24;          
     localparam DATA_IN_BITS = 64;        
     localparam DATA_OUT_BITS = 64;
-    
+    localparam ADDR_POLY_WIDTH = $clog2(K*L*N*COEFF_WIDTH/WORD_LEN);
+
     //DUT signals
     logic                               clk, rst, start, done;
     logic [SEED_SIZE-1 : 0]             rho;    
@@ -18,7 +19,7 @@ module ExpandA_tb;
     //RejNTTPoly instance
     logic [3:0]                         k, l;
     logic                               RejNTTPoly_start;  //pulse 1 cycle        
-    logic [REJ_NTT_POLY_SEED-1 : 0]    RejNTTPoly_rho;    //34 bytes         
+    logic [REJ_NTT_POLY_SEED-1 : 0]     RejNTTPoly_rho;    //34 bytes         
     logic                               RejNTTPoly_done;   //sampling done, pulse 1 cycle 
     logic          we_matA;                         //need K * L * N = 14336 word
     logic [$clog2(K*L*N)-1:0]           addr_matA;  //offset(k,l,n) = k*(L*N) + l*N + n
@@ -100,31 +101,25 @@ module ExpandA_tb;
     );
 
     //dp_ram_true signals
-    localparam int TOTAL_COEFF = K*L*N;
-    localparam int TOTAL_COEFF_WIDTH = $clog2(TOTAL_COEFF);
-    logic [23:0]                    dout_a = 0;
-    logic                           we_b = 0;
-    logic [TOTAL_COEFF_WIDTH-1:0]   addr_b = 0;
-    logic [23:0]                    din_b = 0;
-    logic [23:0]                    dout_b = 0;
+    logic [WORD_LEN-1:0]    dout_a = 0, dout_b = 0;
 
     dp_ram_true #(
-        .ADDR_WIDTH(TOTAL_COEFF_WIDTH),
-        .DATA_WIDTH(24)
+        .ADDR_WIDTH(ADDR_POLY_WIDTH),
+        .DATA_WIDTH(WORD_LEN)
     ) matA (
         .clk(clk),
         .we_a(we_matA),
         .addr_a(addr_matA),
         .din_a(din_matA),
         .dout_a(dout_a),
-        .we_b(we_b),
-        .addr_b(addr_b),
-        .din_b(din_b),
+        .we_b(0),
+        .addr_b(0),
+        .din_b(0),
         .dout_b(dout_b)
     );
 
     // Test instance
-    integer i, fd;
+    integer i, j, cnt = 0, fd;
 
     initial clk = 0;
     always #5 clk = ~clk;
@@ -160,13 +155,13 @@ module ExpandA_tb;
         $fdisplay(fd, "ExpandA output:");
 
         for (i = 0; i < (1<<matA.ADDR_WIDTH); i = i + 1) begin
-            $fdisplay(fd, "%0d: %0d", i, $signed(matA.mem[i]));
+            for(j = 0; j < COEFF_PER_WORD; j = j+1) begin
+                $fdisplay(fd, "%0d: %0d", cnt, $signed(vector_s.mem[i][j*COEFF_WIDTH+:COEFF_WIDTH]));
+                cnt = cnt + 1;
+            end
         end
-
         $fclose(fd);
-        $display("--------------------------------------");
         $display("Simulation done");
-        $display("--------------------------------------");
         #50 $finish;
     end
 endmodule

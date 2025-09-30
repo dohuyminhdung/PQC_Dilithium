@@ -40,22 +40,17 @@ def test_full_scheme(xi, msg, ctx):
         sys.stdout = sys.__stdout__ 
 
 def test_sample_in_ball():
-    rho = b'\xDD\xDD\xCC\xCC\xBB\xBB\xAA\xAA' * 8 #64 bytes
-    out = ML_DSA_87.SampleInBall(rho)
-    ans = out[::-1]
-    print("SampleInBall output: \n", ans)
-
-def test_rejection_NTT_poly():
-    rho = b'\xDD\xDD\xCC\xCC\xBB\xBB\xAA\xAA' * 4 + b'\xDD\xDD' #34 bytes
-    out = ML_DSA_87.RejNTTPoly(rho)
-    ans = out[::-1]
-    print("Rejection_NTT_Poly output: \n", ans)
-
-def test_rejection_bounded_poly():
-    rho = b'\xDD\xDD\xCC\xCC\xBB\xBB\xAA\xAA' * 8 + b'\xDD\xDD' #66 bytes
-    out = ML_DSA_87.RejBoundedPoly(rho)
-    ans = out[::-1]
-    print("Rejection_Bounded_Poly output: \n", ans)
+    rho = b'\xef\xcd\xab\x90\x78\x56\x34\x12' * 8  #64 bytes
+    with open("output.txt", "w", encoding="utf-8") as f:
+        sys.stdout = f
+        i = 0
+        c = ML_DSA_87.SampleInBall(rho)
+        print("SampleInBall output:")
+        for coeff in c:
+            if(coeff < 0): print(f"{i}: {8380417 + coeff}")
+            else: print(f"{i}: {coeff}")
+            i += 1
+        sys.stdout = sys.__stdout__
 
 def test_expandA():
     rho = b'\xef\xcd\xab\x90\x78\x56\x34\x12' * 4  #32 bytes
@@ -100,7 +95,8 @@ def test_expandMask():
         print("ExpandMask output:")
         for row in M:
             for coeff in row:
-                print(f"{i}: {coeff}")
+                if(coeff < 0): print(f"{i}: {8380417 + coeff}")
+                else: print(f"{i}: {coeff}")
                 i += 1
         sys.stdout = sys.__stdout__ 
 
@@ -123,8 +119,6 @@ def compare_output(file1, file2):
 
 if __name__ == "__main__":
     # test_sample_in_ball()
-    # test_rejection_NTT_poly()
-    # test_rejection_bounded_poly()
     # test_expandA()
     # test_expandS()
     # test_expandMask()

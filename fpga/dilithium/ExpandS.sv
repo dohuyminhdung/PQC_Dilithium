@@ -140,9 +140,6 @@ module ExpandS #(
     end
 
     always @* begin
-        // ------------------------------------------------------------
-        // Next-state logic
-        // ------------------------------------------------------------
         next_state = state;
         case (state)
             IDLE: begin

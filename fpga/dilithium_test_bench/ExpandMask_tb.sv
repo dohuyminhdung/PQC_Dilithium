@@ -13,8 +13,10 @@ module ExpandMask_tb;
     localparam int DATA_IN_BITS = 64;
     localparam int DATA_OUT_BITS = 64;
     //parameter for BRAM cache instance
-    parameter int ADDR_WIDTH = $clog2(1088 / DATA_OUT_BITS);
-    parameter int DATA_WIDTH = DATA_OUT_BITS;
+    localparam int ADDR_WIDTH = $clog2(1088 / DATA_OUT_BITS);
+    localparam int DATA_WIDTH = DATA_OUT_BITS;
+    localparam int ADDR_POLY_WIDTH = $clog2(L*N*COEFF_WIDTH/WORD_LEN)
+    localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;
 
     //DUT signals
     logic                           clk, rst, start, done;
@@ -22,8 +24,8 @@ module ExpandMask_tb;
     logic [15 : 0]                  mu;
     
     logic                           we_vector_y;
-    logic [10:0]                    addr_vector_y;
-    logic [23:0]                    din_vector_y;
+    logic [ADDR_POLY_WIDTH -1:0]    addr_vector_y;
+    logic [WORD_LEN-1:0]            din_vector_y;
 
     //shake256 instance
     logic                               absorb_next_poly; //shake force reset
@@ -41,11 +43,12 @@ module ExpandMask_tb;
         .L(L),
         .N(N),
         .GAMMA1(GAMMA1),
-        .COEFF_WIDTH(COEFF_WIDTH),
+        .COEFF_BIT_LEN(COEFF_BIT_LEN),
         .DATA_IN_BITS(DATA_IN_BITS),
         .DATA_OUT_BITS(DATA_OUT_BITS),
         .ADDR_WIDTH(ADDR_WIDTH),
-        .DATA_WIDTH(DATA_WIDTH)
+        .DATA_WIDTH(DATA_WIDTH),
+        .ADDR_POLY_WIDTH(ADDR_POLY_WIDTH)
     ) dut (
         .clk(clk),
         .rst(rst),
@@ -87,32 +90,24 @@ module ExpandMask_tb;
     );
 
     //dp_ram_true signals
-    localparam int TOTAL_COEFF = L * N;
-    localparam int TOTAL_COEFF_WIDTH = $clog2(TOTAL_COEFF);
-    logic [23:0]                    dout_a = 0;
-    logic                           we_b = 0;
-    logic [TOTAL_COEFF_WIDTH-1:0]   addr_b = 0;
-    logic [23:0]                    din_b = 0;
-    logic [23:0]                    dout_b = 0;
-
+    logic [WORD_LEN-1:0]    dout_a = 0, dout_b = 0;
 
     dp_ram_true #(
-        .ADDR_WIDTH(TOTAL_COEFF_WIDTH),
-        .DATA_WIDTH(24)
+        .ADDR_WIDTH(ADDR_POLY_WIDTH),
+        .DATA_WIDTH(WORD_LEN)
     ) vector_y (
         .clk(clk),
         .we_a(we_vector_y),
         .addr_a(addr_vector_y),
         .din_a(din_vector_y),
         .dout_a(dout_a),
-        .we_b(we_b),
-        .addr_b(addr_b),
-        .din_b(din_b),
+        .we_b(0),
+        .addr_b(0),
+        .din_b(0),
         .dout_b(dout_b)
     );
 
-    integer i;
-    integer fd;
+    integer i, j, cnt = 0, fd;
 
     initial clk = 0;
     always #5 clk = ~clk;
@@ -130,8 +125,7 @@ module ExpandMask_tb;
         @(posedge clk);
         start = 1;
     // =================== WRITE YOUR TEST logic ===================
-        rho = 512'h
-                1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef;
+        rho = 512'h1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef;
         mu = 16'h0001;
         @(posedge clk);
         start = 0;
@@ -149,13 +143,13 @@ module ExpandMask_tb;
         // $fdisplay(fd, "  Format: index | decimal | hex");
         // $fdisplay(fd, "--------------------------------------");
         $fdisplay(fd, "ExpandMask output:");
-
         for (i = 0; i < (1<<vector_y.ADDR_WIDTH); i = i + 1) begin
             // $fdisplay(fd, "%4d : %10d | 0x%0h", i, $signed(vector_y.mem[i]), vector_y.mem[i]);
-            $fdisplay(fd, "%0d: %0d", i, $signed(vector_y.mem[i]));
+            for(j = 0; j < COEFF_PER_WORD; j = j+1) begin
+                $fdisplay(fd, "%0d: %0d", cnt, $signed(vector_s.mem[i][j*COEFF_WIDTH+:COEFF_WIDTH]));
+                cnt = cnt + 1;
+            end
         end
-
-        // $fdisplay(fd, "--------------------------------------");
         $fclose(fd);
         $display("Simulation done");
         #50 $finish;

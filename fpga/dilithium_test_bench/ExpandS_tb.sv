@@ -26,19 +26,19 @@ module ExpandS_tb;
     logic                             done;       //sampling done, pulse 1 cycle     
     
     logic we_vector_s;
-    logic [ADDR_POLY_WIDTH -1:0]  addr_vector_s;  //(L+K)*N/2 = 15 * 256 / 2 = 1920 words (log2(1920) = 11)
-    logic [WORD_LEN-1:0]                    din_vector_s;   
+    logic [ADDR_POLY_WIDTH -1:0]    addr_vector_s;  //(L+K)*N/2 = 15 * 256 / 2 = 1920 words (log2(1920) = 11)
+    logic [WORD_LEN-1:0]            din_vector_s;   
     
     //shake256 instance
-    logic                              absorb_next_poly; //shake force reset
-    logic  [DATA_IN_BITS-1:0]          shake_data_in;
-    logic                              in_valid;
-    logic                              in_last;
-    logic [$clog2(DATA_IN_BITS) : 0]  last_len;
-    logic                              out_ready;
-    logic [DATA_OUT_BITS-1:0]         shake_data_out;
-    logic                             out_valid;
-    logic                             in_ready;
+    logic                               absorb_next_poly; //shake force reset
+    logic  [DATA_IN_BITS-1:0]           shake_data_in;
+    logic                               in_valid;
+    logic                               in_last;
+    logic [$clog2(DATA_IN_BITS) : 0]    last_len;
+    logic                               out_ready;
+    logic [DATA_OUT_BITS-1:0]           shake_data_out;
+    logic                               out_valid;
+    logic                               in_ready;
 
     // Instantiate the DUT
     ExpandS #(
@@ -92,7 +92,7 @@ module ExpandS_tb;
     );
 
     //dp_ram_true signals
-    logic [WORD_LEN-1:0]                    dout_a = 0, dout_b = 0;
+    logic [WORD_LEN-1:0]    dout_a = 0, dout_b = 0;
 
     dp_ram_true #(
         .ADDR_WIDTH(ADDR_POLY_WIDTH),
