@@ -54,7 +54,7 @@ module ExpandMask #(
     localparam int IN_LAST_LEN = (RHO_PRIME % DATA_IN_BITS) == 0 ? DATA_IN_BITS : (RHO_PRIME % DATA_IN_BITS);
     assign last_len = IN_LAST_LEN;
 
-    localparam integer gamma1 = (1 << GAMMA1);
+    localparam int gamma1 = (1 << GAMMA1);
 
     // Absorb state
     reg  [$clog2(SEED_SIZE) : 0]       feed_cnt;
@@ -276,7 +276,7 @@ module ExpandMask #(
                             addr_unpack <= addr_unpack + 1;
                         end else if (coeff_per_word_cnt >= WORD_LEN) begin //write chunk
                             we_vector_y <= 1;
-                            din_vector_s <= coeff_per_word;
+                            din_vector_y <= coeff_per_word;
                             addr_vector_y <= addr_vector_y + 1;
                             coeff_cnt <= coeff_cnt + COEFF_PER_WORD;
                             coeff_per_word_cnt <= 0;
@@ -284,7 +284,7 @@ module ExpandMask #(
                             unpack_buffer_left <= unpack_buffer_left - COEFF_BIT_LEN;
                             unpack_buffer <= unpack_buffer >> COEFF_BIT_LEN;
                             coeff_per_word_cnt <= coeff_per_word_cnt + COEFF_WIDTH;
-                            coeff_per_word[coeff_per_word_cnt+:COEFF_WIDTH] <= (gamma1 - unpack_buffer[0 +: COEFF_BIT_LEN]) > 0 ?
+                            coeff_per_word[coeff_per_word_cnt+:COEFF_WIDTH] <= (gamma1 > unpack_buffer[0 +: COEFF_BIT_LEN]) ?
                                                                                 COEFF_WIDTH'(gamma1 - unpack_buffer[0 +: COEFF_BIT_LEN]):
                                                                                 COEFF_WIDTH'(gamma1 - unpack_buffer[0 +: COEFF_BIT_LEN] + Q);
                                 

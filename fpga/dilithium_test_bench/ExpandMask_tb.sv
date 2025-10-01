@@ -8,14 +8,16 @@ module ExpandMask_tb;
     localparam int N = 256;
     localparam int GAMMA1 = 19; 
     localparam integer gamma1 = (1 << GAMMA1);
-    localparam int COEFF_WIDTH = GAMMA1 + 1; //step 1 of Algorithm 34: c = 1 + bitlen(gamma1-1)
+    localparam int COEFF_BIT_LEN = GAMMA1 + 1; //step 1 of Algorithm 34: c = 1 + bitlen(gamma1-1)
+    localparam int COEFF_WIDTH = 24;
+    localparam int WORD_LEN = COEFF_WIDTH * 4;
     //localparam for shake256 instance
     localparam int DATA_IN_BITS = 64;
     localparam int DATA_OUT_BITS = 64;
     //parameter for BRAM cache instance
     localparam int ADDR_WIDTH = $clog2(1088 / DATA_OUT_BITS);
     localparam int DATA_WIDTH = DATA_OUT_BITS;
-    localparam int ADDR_POLY_WIDTH = $clog2(L*N*COEFF_WIDTH/WORD_LEN)
+    localparam int ADDR_POLY_WIDTH = $clog2(L*N*COEFF_WIDTH/WORD_LEN);
     localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;
 
     //DUT signals
@@ -146,7 +148,7 @@ module ExpandMask_tb;
         for (i = 0; i < (1<<vector_y.ADDR_WIDTH); i = i + 1) begin
             // $fdisplay(fd, "%4d : %10d | 0x%0h", i, $signed(vector_y.mem[i]), vector_y.mem[i]);
             for(j = 0; j < COEFF_PER_WORD; j = j+1) begin
-                $fdisplay(fd, "%0d: %0d", cnt, $signed(vector_s.mem[i][j*COEFF_WIDTH+:COEFF_WIDTH]));
+                $fdisplay(fd, "%0d: %0d", cnt, $signed(vector_y.mem[i][j*COEFF_WIDTH+:COEFF_WIDTH]));
                 cnt = cnt + 1;
             end
         end

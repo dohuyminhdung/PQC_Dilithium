@@ -7,10 +7,12 @@ module ExpandA_tb;
     localparam K = 8;
     localparam L = 7;
     localparam N = 256;                              
-    localparam COEFF_WIDTH = 24;          
+    localparam COEFF_WIDTH = 24; 
+    localparam int WORD_LEN = COEFF_WIDTH * 4;         
     localparam DATA_IN_BITS = 64;        
     localparam DATA_OUT_BITS = 64;
     localparam ADDR_POLY_WIDTH = $clog2(K*L*N*COEFF_WIDTH/WORD_LEN);
+    localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;
 
     //DUT signals
     logic                               clk, rst, start, done;
@@ -22,8 +24,8 @@ module ExpandA_tb;
     logic [REJ_NTT_POLY_SEED-1 : 0]     RejNTTPoly_rho;    //34 bytes         
     logic                               RejNTTPoly_done;   //sampling done, pulse 1 cycle 
     logic          we_matA;                         //need K * L * N = 14336 word
-    logic [$clog2(K*L*N)-1:0]           addr_matA;  //offset(k,l,n) = k*(L*N) + l*N + n
-    logic [23:0]                        din_matA;
+    logic [ADDR_POLY_WIDTH-1:0]         addr_matA;  //offset(k,l,n) = k*(L*N) + l*N + n
+    logic [WORD_LEN-1:0]                din_matA;
 
     // shake128 instance
     // logic                               absorb_next_poly;
@@ -156,7 +158,7 @@ module ExpandA_tb;
 
         for (i = 0; i < (1<<matA.ADDR_WIDTH); i = i + 1) begin
             for(j = 0; j < COEFF_PER_WORD; j = j+1) begin
-                $fdisplay(fd, "%0d: %0d", cnt, $signed(vector_s.mem[i][j*COEFF_WIDTH+:COEFF_WIDTH]));
+                $fdisplay(fd, "%0d: %0d", cnt, $signed(matA.mem[i][j*COEFF_WIDTH+:COEFF_WIDTH]));
                 cnt = cnt + 1;
             end
         end

@@ -10,6 +10,7 @@ module RejNTTPoly #(
     parameter int L = 7,             // number of columns
     parameter int N = 256,           // output are 256 coefficients from a polynomial
     parameter int COEFF_WIDTH = 24,  // coefficient width is log2(q) = 23-bit ~ 24-bits for align word
+    parameter int WORD_LEN = COEFF_WIDTH * 4,
     parameter int DATA_IN_BITS = 64, //should divisible by 8
     parameter int DATA_OUT_BITS = 64,//should divisible by 8
     //parameter for BRAM cache instance
@@ -28,8 +29,8 @@ module RejNTTPoly #(
     //total bits = K * L * 256 * 24 = 344064 bits = 43008 bytes
     input  wire [3:0]   k, l,
     output reg          we_matA,                //need K * L * N = 14336 word
-    output reg [$clog2(K*L*N)-1:0]  addr_matA,  //offset(k,l,n) = k*(L*N) + l*N + n
-    output reg [23:0]               din_matA,
+    output reg [ADDR_POLY_WIDTH-1:0]    addr_matA,  //offset(k,l,n) = k*(L*N) + l*N + n
+    output reg [WORD_LEN-1:0]           din_matA,
 
     // shake128 instance
     // output reg                              absorb_next_poly,
@@ -60,7 +61,7 @@ module RejNTTPoly #(
     reg  [$clog2(N) : 0]                                coeff_cnt;//0 => 256
     localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;
     reg [WORD_LEN-1:0]          coeff_per_word;
-    reg [$clog2(WORD_LEN):0]    coeff_per_word_cnt;
+    reg [$clog2(WORD_LEN):0]    coeff_per_word_cnt; 
 
     // ------------------------------------------------------------
     // Signals for BRAM cache
@@ -257,7 +258,7 @@ module RejNTTPoly #(
                         end else if (coeff_per_word_cnt >= WORD_LEN) begin
                             we_matA <= 1;
                             din_matA <= coeff_per_word;
-                            addr_matA <= (k*(L*N) + l*N + coeff_cnt) >> 2;
+                            addr_matA <= ((k*(L*N) + l*N + coeff_cnt) >> 2);
                             coeff_cnt <= coeff_cnt + COEFF_PER_WORD;
                             coeff_per_word_cnt <= 0;
                         end else begin    

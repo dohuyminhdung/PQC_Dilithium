@@ -165,9 +165,6 @@ module ExpandS #(
         endcase
     end
 
-    // ------------------------------------------------------------
-    // Output / handshake signals
-    // ------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
             //vector s signals
