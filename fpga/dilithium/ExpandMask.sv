@@ -6,38 +6,50 @@
 //         Each entry is a polynomial (list of 256 coefficients mod q)
 
 module ExpandMask #(
+    //ML-DSA87 parameters
     parameter int SEED_SIZE = 64 * 8, //SHALL NOT MODIFY
     parameter int RHO_PRIME = 66 * 8, //SHALL NOT MODIFY 
     parameter int L = 7,
     parameter int N = 256,
     parameter int GAMMA1 = 19, // actually gamma1 = 2^this_parameter
+    parameter int Q = 8380417, //2^23 - 2^13 + 1
     //parameter int MAX_LOOPS = 814, //Appendix C - Loop Bounds for ML-DSA.Sign_internal
                                     //FIPS204, page 52, slide 62
     parameter int COEFF_BIT_LEN = GAMMA1 + 1, //step 1 of Algorithm 34: c = 1 + bitlen(gamma1-1)
-    parameter int COEFF_WIDTH = 24, 
-    parameter int WORD_LEN = COEFF_WIDTH * 4,
-    //parameter for shake256 instance
-    parameter int DATA_IN_BITS = 64,
-    parameter int DATA_OUT_BITS = 64,
+    //raw data RAM parameters
+    parameter int WORD_WIDTH = 64,
+    parameter int TOTAL_WORD = 4096,
+    parameter int DATA_ADDR_WIDTH = $clog2(TOTAL_WORD),
+    parameter int RHO_Y_OFFSET = 0,          //seed rho'' for expandMask 
+    //NTT data RAM parameters
+    parameter int COEFF_WIDTH = 24,
+    parameter int COEFF_PER_WORD = 4,
+    parameter int WORD_COEFF = COEFF_WIDTH * COEFF_PER_WORD,
+    parameter int TOTAL_COEFF = 4096,
+    parameter int NTT_ADDR_WIDTH = $clog2(TOTAL_COEFF), //$clog2(L*N/COEFF_PER_WORD)
+    parameter int VECTOR_Y_BASE_OFFSET = 0, //vector y
+    //parameter for shake256
+    parameter int DATA_IN_BITS = WORD_WIDTH,
+    parameter int DATA_OUT_BITS = WORD_WIDTH,
     //parameter for BRAM cache instance
     parameter int ADDR_WIDTH = $clog2(1088 / DATA_OUT_BITS),
-    parameter int DATA_WIDTH = DATA_OUT_BITS,
-    parameter int ADDR_POLY_WIDTH = $clog2(L*N*COEFF_WIDTH/WORD_LEN)
+    parameter int DATA_WIDTH = DATA_OUT_BITS
 ) (
-    input  wire                             clk,
-    input  wire                             rst,
-    input  wire                             start,
-    input  wire [SEED_SIZE-1 : 0]           rho,
-    input  wire [15 : 0]                    mu,
-    output wire                             done,
-    
+    input  wire                         clk,
+    input  wire                         rst,
+    input  wire                         start,
+    output wire                         done,
+
+    input  wire [DATA_IN_BITS-1 : 0]    rho,
+    input  wire [15 : 0]                mu,
+
     //output reg  [N * COEFF_BIT_LEN - 1 : 0]   y[L],
     //vector y is stored in BRAM, each coeff is COEFF_BIT_LEN bit wide
     //total bits = L * N * COEFF_BIT_LEN = 7 * 256 * 20 = 35840 bits = 4480 bytes
     //each word is a coeff => need N * L = 256 * 7 = 1792 words (log2(1792) = 11)
-    output reg we_vector_y,
-    output reg [ADDR_POLY_WIDTH-1:0]    addr_vector_y,
-    output reg [WORD_LEN-1:0]           din_vector_y,
+    output reg                          we_vector_y,
+    output reg [NTT_ADDR_WIDTH-1:0]     addr_vector_y,
+    output reg [WORD_COEFF-1:0]         din_vector_y,
 
     //shake256 instance
     output reg                              absorb_next_poly, //shake force reset
@@ -45,12 +57,14 @@ module ExpandMask #(
     output reg                              in_valid,
     output reg                              in_last,
     output wire [$clog2(DATA_IN_BITS) : 0]  last_len,
+    // output reg                             cache_rst,
+    output reg                              cache_rd,
+    output reg                              cache_wr,
     output reg                              out_ready,
     input  wire [DATA_OUT_BITS-1:0]         shake_data_out,
     input  wire                             out_valid,
     input  wire                             in_ready
 );
-    localparam int Q = 8380417; //2^23 - 2^13 + 1
     localparam int IN_LAST_LEN = (RHO_PRIME % DATA_IN_BITS) == 0 ? DATA_IN_BITS : (RHO_PRIME % DATA_IN_BITS);
     assign last_len = IN_LAST_LEN;
 
@@ -72,11 +86,9 @@ module ExpandMask #(
     wire [15:0] mu_plus_r;      //IntegerToBytes(mu+r, 2)
     assign mu_plus_r = mu + poly_cnt; //step 3 of Algorithm 34: rho' = rho||IntegerToBytes(mu+r, 2)
     assign done = poly_cnt >= L;
-    localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;
-    reg [WORD_LEN-1:0]          coeff_per_word;
-    reg [$clog2(WORD_LEN):0]    coeff_per_word_cnt;
+    reg [WORD_COEFF-1:0]          coeff_per_word;
+    reg [$clog2(WORD_COEFF):0]    coeff_per_word_cnt;
                  
-    // ------------------------------------------------------------
     // Signals for BRAM cache
     reg                     we_squeeze; 
     reg  [DATA_WIDTH-1:0]   din_squeeze; 
@@ -95,20 +107,16 @@ module ExpandMask #(
         .din_b(0),  ////data_in_unpack is useless
         .dout_b(dout_unpack)
     );
-    // ------------------------------------------------------------
 
-    // ------------------------------------------------------------
     // FSM state encoding
-    localparam IDLE     = 2'd0;
-    localparam ABSORB   = 2'd1;
-    localparam SQUEEZE  = 2'd2;
-    localparam UNPACK   = 2'd3;
-    reg  [1:0] state, next_state;
-    // ------------------------------------------------------------
+    localparam IDLE         = 3'd0;
+    localparam ABSORB       = 3'd1;
+    localparam ABSORB_FAST  = 3'd2;
+    localparam SQUEEZE      = 3'd3;
+    localparam UNPACK       = 3'd4;
+    reg  [2:0] state, next_state;
 
-    // ------------------------------------------------------------
     // Sequential state register
-    // ------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
             state <= IDLE;
@@ -126,7 +134,12 @@ module ExpandMask #(
             end
 
             ABSORB: begin
-                if (in_ready && in_last) 
+                if (in_ready && (feed_cnt >= SEED_SIZE)) 
+                    next_state = SQUEEZE;
+            end
+
+            ABSORB_FAST: begin
+                if (in_ready && cache_rd)
                     next_state = SQUEEZE;
             end
 
@@ -139,7 +152,7 @@ module ExpandMask #(
                 if (done)
                     next_state = IDLE;
                 else if (coeff_cnt >= 256)
-                    next_state = ABSORB;
+                    next_state = ABSORB_FAST;
                 else if (addr_unpack >= SQUEEZE_BLOCK) 
                     next_state = SQUEEZE;
             end
@@ -158,6 +171,8 @@ module ExpandMask #(
             shake_data_in <= 0;
             in_valid <= 0;
             in_last <= 0;
+            cache_rd <= 0;
+            cache_wr <= 0;
             out_ready <= 0;
 
             //absorb signals
@@ -190,6 +205,8 @@ module ExpandMask #(
                     shake_data_in <= 0;
                     in_valid <= 0;
                     in_last <= 0;
+                    cache_rd <= 0;
+                    cache_wr <= 0;
                     out_ready <= 0;
 
                     //absorb signals
@@ -214,40 +231,66 @@ module ExpandMask #(
                 ABSORB: begin
                     //Total feed bits = 66 * 8 = 528 < 1088
                     //feed_cnt <= feed_cnt + DATA_IN_BITS;
-                    // in_valid <= 1;
+                    //in_valid <= 1;
                     //in_last <= 0;
                     out_ready <= 0;
                     squeeze_cnt <= 0;
                     // addr_squeeze <= 0;
                     we_squeeze <= 0;
-                    absorb_next_poly <= 0;
                     addr_unpack <= 0;
                     we_vector_y <= 0;
+                    // absorb_next_poly <= 0;
 
                     if (in_ready) begin
                         in_valid <= 1;
-                        if(feed_cnt >= SEED_SIZE) begin
-                            in_last <= 1;
-                            shake_data_in <= mu_plus_r;
-                        end else begin
-                            in_last <= 0;
-                            shake_data_in <= rho[feed_cnt +: DATA_IN_BITS];
+                        if(feed_cnt < SEED_SIZE) begin
+                            shake_data_in <= rho;
                             feed_cnt <= feed_cnt + DATA_IN_BITS;
+                            in_last <= 0;
+                            cache_wr <= 1;
+                        end else begin
+                            shake_data_in <= mu_plus_r;
+                            feed_cnt <= 0;
+                            in_last <= 1;
+                            cache_wr <= 0;
+                        end
+                    end
+                end
+
+                ABSORB_FAST: begin
+                    //feed_cnt <= feed_cnt + DATA_IN_BITS;
+                    //in_valid <= 1;
+                    //in_last <= 0;
+                    out_ready <= 0;
+                    squeeze_cnt <= 0;
+                    // addr_squeeze <= 0;
+                    we_squeeze <= 0;
+                    addr_unpack <= 0;
+                    we_vector_y <= 0;
+                    absorb_next_poly <= 0;
+                    if(in_ready) begin
+                        in_valid <= 1;
+                        if(!cache_rd)
+                            cache_rd <= 1;
+                        else begin
+                            shake_data_in <= mu_plus_r;
+                            cache_rd <= 0;
+                            in_last <= 1;
                         end
                     end
                 end
 
                 SQUEEZE: begin //using port A
-                    feed_cnt <= 0;
+                    // feed_cnt <= 0;
                     in_valid <= 0;
                     in_last <= 0;
                     out_ready <= 1;
                     //squeeze_cnt <= squeeze_cnt + 1;
                     //addr_squeeze <= squeeze_cnt;
                     we_squeeze <= 0;
-                    absorb_next_poly <= 0;
                     addr_unpack <= 0;
                     we_vector_y <= 0;
+                    // absorb_next_poly <= 0;
 
                     if(out_valid) begin
                         we_squeeze <= 1;
@@ -258,23 +301,23 @@ module ExpandMask #(
                 end
 
                 UNPACK: begin //using port B
-                    feed_cnt <= 0;
+                    // feed_cnt <= 0;
                     in_valid <= 0;
                     in_last <= 0;
                     out_ready <= 0;
                     squeeze_cnt <= 0;
                     addr_squeeze <= 0;
                     we_squeeze <= 0;
-                    absorb_next_poly <= 0;
                     //addr_unpack <= addr_unpack + 1;
                     we_vector_y <= 0;
+                    // absorb_next_poly <= 0;
                     
                     if(coeff_cnt < N) begin 
                         if(unpack_buffer_left < COEFF_BIT_LEN) begin //read next word
                             unpack_buffer <= unpack_buffer | (dout_unpack << unpack_buffer_left);
                             unpack_buffer_left <= unpack_buffer_left + DATA_OUT_BITS;
                             addr_unpack <= addr_unpack + 1;
-                        end else if (coeff_per_word_cnt >= WORD_LEN) begin //write chunk
+                        end else if (coeff_per_word_cnt >= WORD_COEFF) begin //write chunk
                             we_vector_y <= 1;
                             din_vector_y <= coeff_per_word;
                             addr_vector_y <= addr_vector_y + 1;
@@ -295,7 +338,6 @@ module ExpandMask #(
                         addr_vector_y <= addr_vector_y;
                         poly_cnt <= poly_cnt + 1;
                         absorb_next_poly <= 1;
-                        //reset addr_unpack for next poly
                         addr_unpack <= 0;
                         coeff_per_word <= 0;
                         coeff_per_word_cnt <= 0;
@@ -306,7 +348,6 @@ module ExpandMask #(
             endcase
         end
     end
-
     //c = 1 + bitlen(gamma1-1) = COEFF_BIT_LEN
     //for r = poly_cnt form 0 to (l-1)
         //rho' = rho||bytes(mu+r, 2) = rho||mu_plus_r

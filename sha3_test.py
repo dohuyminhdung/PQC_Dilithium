@@ -79,18 +79,19 @@ def verify_golden_model():
     sys.stdout = sys.__stdout__ 
 
 def get_answer():
-    data_in = b'\xef\xcd\xab\x90\x78\x56\x34\x12' * 8 + b'\x01\x00' #34 bytes
+    data_in = b'\xef\xcd\xab\x90\x78\x56\x34\x12' * 4 #+ b'\x01\x00' #34 bytes
     # b'\xAA\xAA\xBB\xBB\xCC\xCC\xDD\xDD' * 16 + b'\x11\x11\x22\x22\x33\x33\x44\x44'
     #// 00,abcd
     #...
     print(data_in.hex())
-    shake = SHAKE256.new()
+    shake = SHAKE128.new()
     shake.update(data_in)
-    ans = shake.read(8)
+    ans = shake.read(64)
     rev_ans = ans[::-1]
     print(rev_ans.hex())
 
 if __name__ == "__main__":
     get_answer()
     #28d26f767f8a8c44928ad88a610b9b67
-    #
+    #0088f7bf3ef457c4bb1a9962611e2ef371948bf266db936db1e50a0e6fba1eeb
+    #0088f7bf3ef457c4bb1a9962611e2ef371948bf266db936db1e50a0e6fba1eeb

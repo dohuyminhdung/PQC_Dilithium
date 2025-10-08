@@ -8,33 +8,42 @@
 module ExpandS #( 
     parameter int SEED_SIZE = 64*8,             //SHALL NOT MODIFY 
     parameter int REJ_BOUNDED_POLY_SEED = 66*8, //SHALL NOT MODIFY
-    parameter int WORD_LEN = 96,                
     parameter int K = 8,                // number of rows
-    parameter int L = 7,                // number of columns             
-    parameter int N   = 256,            //output are 256 coefficients from a polynomial   
+    parameter int L = 7,                // number of columns                             
+    parameter int N = 256,              //output are 256 coefficients from a polynomial
     parameter int ETA = 2,              //private key range in Dilithium
-    parameter int COEFF_WIDTH = 24,      //coefficient is guarantee in range [-eta, eta] = [-2, 2]
-    //parameter for shake256 instance
-    parameter int DATA_IN_BITS = 64,
-    parameter int DATA_OUT_BITS = 64,
+    //raw data RAM parameters
+    parameter int WORD_WIDTH = 64,
+    parameter int TOTAL_WORD = 4096,
+    parameter int DATA_ADDR_WIDTH = $clog2(TOTAL_WORD),
+    parameter int RHO_PRIME_BASE_OFFSET = 0,    //seed rho_prime for expandS
+    //NTT data RAM parameters
+    parameter int COEFF_WIDTH = 24,     //coefficient is guarantee in range [-eta, eta] = [-2, 2]
+    parameter int COEFF_PER_WORD = 4,
+    parameter int WORD_COEFF = COEFF_WIDTH * COEFF_PER_WORD,
+    parameter int TOTAL_COEFF = 4096,   //$clog2((L+K)*N*/COEFF_PER_WORD)
+    parameter int NTT_ADDR_WIDTH = $clog2(TOTAL_COEFF),
+    parameter int VECTOR_S_BASE_OFFSET = 0,     //vector s1, s2  
+    //SHAKE parameters
+    parameter int DATA_IN_BITS = WORD_WIDTH, //should divisible by 8
+    parameter int DATA_OUT_BITS = WORD_WIDTH, //should divisible by 8
     //parameter for BRAM cache instance
     parameter int ADDR_WIDTH = $clog2(1088 / DATA_OUT_BITS),
-    parameter int DATA_WIDTH = DATA_OUT_BITS,
-    parameter int ADDR_POLY_WIDTH = $clog2((L+K)*N*COEFF_WIDTH/WORD_LEN)
+    parameter int DATA_WIDTH = DATA_OUT_BITS
 )(
-    input  wire                             clk,
-    input  wire                             rst,
-    input  wire                             start,      //pulse 1 cycle        
-    input  wire [SEED_SIZE-1 : 0]           rho,        //64 bytes         
-    output wire                             done,       //sampling done, pulse 1 cycle     
+    input  wire                         clk,
+    input  wire                         rst,
+    input  wire                         start,      //pulse 1 cycle             
+    output wire                         done,       //sampling done, pulse 1 cycle
+    //absorb rho_prime signals
+    input  wire [DATA_IN_BITS-1 : 0]    rho,        //64 bytes         
     
     //vector s1 and s2 is stored in BRAM, each coeff is 4 bit wide
     //total bits = (L+K)*N*4 = 15 * 256 * 4 = 15360 bits = 1920 bytes
     //each word is 2 coeff => need (L+K)*N/2 = 15 * 256 / 2 = 1920 words (log2(1920) = 11)
-    
     output reg we_vector_s,
-    output reg [ADDR_POLY_WIDTH-1:0]        addr_vector_s,  
-    output reg [WORD_LEN-1:0]               din_vector_s,
+    output reg [NTT_ADDR_WIDTH-1:0]     addr_vector_s,  
+    output reg [WORD_COEFF-1:0]         din_vector_s,
 
     //shake256 instance
     output reg                              absorb_next_poly, //shake force reset
@@ -42,6 +51,9 @@ module ExpandS #(
     output reg                              in_valid,
     output reg                              in_last,
     output wire [$clog2(DATA_IN_BITS) : 0]  last_len,
+    // output reg                             cache_rst,
+    output reg                              cache_rd,
+    output reg                              cache_wr,
     output reg                              out_ready,
     input  wire [DATA_OUT_BITS-1:0]         shake_data_out,
     input  wire                             out_valid,
@@ -64,11 +76,9 @@ module ExpandS #(
     reg  [$clog2(K+L):0]    poly_cnt; //0 => L + K = 15
     reg  [$clog2(N) : 0]    coeff_cnt;//0 => 256
     assign done = poly_cnt >= K + L;
-    localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;
-    reg [WORD_LEN-1:0]          coeff_per_word;
-    reg [$clog2(WORD_LEN):0]    coeff_per_word_cnt;
+    reg [WORD_COEFF-1:0]          coeff_per_word;
+    reg [$clog2(WORD_COEFF):0]    coeff_per_word_cnt;
 
-    // ------------------------------------------------------------
     // Signals for BRAM cache
     reg                     we_squeeze; 
     reg  [DATA_WIDTH-1:0]   din_squeeze; 
@@ -87,18 +97,15 @@ module ExpandS #(
         .din_b(0), //data_in_unpack is useless
         .dout_b(dout_unpack)
     );
-    // ------------------------------------------------------------
 
-    // ------------------------------------------------------------
     // FSM state encoding
-    localparam IDLE     = 2'd0;
-    localparam ABSORB   = 2'd1;
-    localparam SQUEEZE  = 2'd2;
-    localparam UNPACK   = 2'd3;
-    reg  [1:0] state, next_state;
-    // ------------------------------------------------------------
+    localparam IDLE         = 3'd0;
+    localparam ABSORB       = 3'd1;
+    localparam ABSORB_FAST  = 3'd2;
+    localparam SQUEEZE      = 3'd3;
+    localparam UNPACK       = 3'd4;
+    reg  [2:0] state, next_state;
 
-    // ------------------------------------------------------------
     // Algorithm 15: Coefficient generation from a half byte, FIPS 204 page 30, slide 40
     // Generates an element of {-eta, ..., eta} from a half byte
     // Input:  A half byte b (0 <= b < 16)
@@ -122,15 +129,12 @@ module ExpandS #(
                 4'd12:  CoeffFromHalfByte =  COEFF_WIDTH'(0); 
                 4'd13:  CoeffFromHalfByte =  COEFF_WIDTH'(8380416); //-1
                 4'd14:  CoeffFromHalfByte =  COEFF_WIDTH'(8380415); //-2
-                default: CoeffFromHalfByte =  0;
+                default: CoeffFromHalfByte =  -100;
             endcase
         end
-    endfunction
-    // ------------------------------------------------------------ 
+    endfunction 
 
-    // ------------------------------------------------------------
     // Sequential state register
-    // ------------------------------------------------------------
     always @(posedge clk) begin
         if (rst) begin
             state <= IDLE;
@@ -150,6 +154,10 @@ module ExpandS #(
                 if (in_ready && (feed_cnt >= SEED_SIZE)) 
                     next_state = SQUEEZE;
             end
+            ABSORB_FAST: begin
+                if (in_ready && cache_rd)
+                    next_state = SQUEEZE;
+            end
             SQUEEZE: begin
                 if (squeeze_cnt >= SQUEEZE_BLOCK) 
                     next_state = UNPACK;
@@ -157,8 +165,8 @@ module ExpandS #(
             UNPACK: begin
                 if(done)
                     next_state = IDLE;
-                else if(coeff_cnt >= 256)
-                    next_state = ABSORB;
+                else if(coeff_cnt >= N)
+                    next_state = ABSORB_FAST;
                 else if(addr_unpack >= SQUEEZE_BLOCK)
                     next_state = SQUEEZE;
             end
@@ -177,6 +185,8 @@ module ExpandS #(
             shake_data_in <= 0;
             in_valid <= 0;
             in_last <= 0;
+            cache_rd <= 0;
+            cache_wr <= 0;
             out_ready <= 0;
 
             //absorb signals
@@ -209,6 +219,8 @@ module ExpandS #(
                     shake_data_in <= 0;
                     in_valid <= 0;
                     in_last <= 0;
+                    cache_rd <= 0;
+                    cache_wr <= 0;
                     out_ready <= 0;
 
                     //absorb signals
@@ -238,33 +250,58 @@ module ExpandS #(
                     squeeze_cnt <= 0;
                     // addr_squeeze <= 0;
                     we_squeeze <= 0;
-                    absorb_next_poly <= 0;
                     addr_unpack <= 0;
                     we_vector_s <= 0;
+                    // absorb_next_poly <= 0;
 
                     if(in_ready) begin
                         in_valid <= 1;
-                        if(feed_cnt >= SEED_SIZE) begin
-                            in_last <= 1;
-                            shake_data_in <= (poly_cnt);
-                        end else begin
-                            in_last <= 0;
-                            shake_data_in <= rho[feed_cnt +: DATA_IN_BITS];
+                        if(feed_cnt < SEED_SIZE) begin
+                            shake_data_in <= rho;
                             feed_cnt <= feed_cnt + DATA_IN_BITS;
+                            in_last <= 0;
+                            cache_wr <= 1;
+                        end else begin
+                            shake_data_in <= DATA_IN_BITS'(poly_cnt);
+                            feed_cnt <= 0;
+                            in_last <= 1;
+                            cache_wr <= 0;
+                        end
+                    end
+                end
+                ABSORB_FAST: begin
+                    //feed_cnt <= feed_cnt + DATA_IN_BITS;
+                    //in_valid <= 1;
+                    //in_last <= 0;
+                    out_ready <= 0;
+                    squeeze_cnt <= 0;
+                    // addr_squeeze <= 0;
+                    we_squeeze <= 0;
+                    addr_unpack <= 0;
+                    we_vector_s <= 0;
+                    absorb_next_poly <= 0;
+                    if(in_ready) begin
+                        in_valid <= 1;
+                        if(!cache_rd) 
+                            cache_rd <= 1;
+                        else begin
+                            shake_data_in <= DATA_IN_BITS'(poly_cnt);
+                            cache_rd <= 0;
+                            in_last <= 1;
                         end
                     end
                 end
                 SQUEEZE: begin 
-                    feed_cnt <= 0;
+                    // feed_cnt <= 0;
                     in_valid <= 0;
                     in_last <= 0;
                     out_ready <= 1;
                     //squeeze_cnt <= squeeze_cnt + 1;
                     //addr_squeeze <= squeeze_cnt;
                     we_squeeze <= 0;
-                    absorb_next_poly <= 0;
                     addr_unpack <= 0;
                     we_vector_s <= 0;
+                    // absorb_next_poly <= 0;
 
                     if(out_valid) begin
                         we_squeeze <= 1;
@@ -274,26 +311,26 @@ module ExpandS #(
                     end
                 end
                 UNPACK: begin
-                    feed_cnt <= 0;
+                    // feed_cnt <= 0;
                     in_valid <= 0;
                     in_last <= 0;
                     out_ready <= 0;
                     squeeze_cnt <= 0;
                     addr_squeeze <= 0;
                     we_squeeze <= 0;
-                    absorb_next_poly <= 0;
                     //addr_unpack <= addr_unpack;
                     we_vector_s <= 0;
+                    // absorb_next_poly <= 0;
 
                     if(coeff_cnt < N) begin
                         if(unpack_buffer_left < 4) begin //read next word
                             unpack_buffer <= unpack_buffer | (dout_unpack << unpack_buffer_left);
                             unpack_buffer_left <= unpack_buffer_left + DATA_OUT_BITS;
                             addr_unpack <= addr_unpack + 1;
-                        end else if (coeff_per_word_cnt >= WORD_LEN) begin
+                        end else if (coeff_per_word_cnt >= WORD_COEFF) begin
                             we_vector_s <= 1;
                             din_vector_s <= coeff_per_word;
-                            addr_vector_s <= addr_vector_s + 1;
+                            addr_vector_s <= VECTOR_S_BASE_OFFSET + addr_vector_s + 1;
                             coeff_cnt <= coeff_cnt + COEFF_PER_WORD;
                             coeff_per_word_cnt <= 0;
                         end else begin

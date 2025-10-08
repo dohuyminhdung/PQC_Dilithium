@@ -5,31 +5,41 @@
 // Input: rho (typically lambda/4 = 256/4 = 64 bytes from H(mu || w1Encode(w1)) in Sign)
 // Output: A polynomial c in R_q (list of 256 coefficients in R_q)
 
-module SampleInBall #( 
+module SampleInBall #(
+    //ML-DSA87 parameters
     parameter int N = 256,                  // output are 256 coefficients from a polynomial
     parameter int LAMBDA = 256,             // collision strength of c~
     parameter int TAU = 60,                 // Hamming weight of c
     parameter int SEED_SIZE = LAMBDA/4*8,   // 64 bytes = 512 bits
+    //raw data RAM parameters
+    parameter int WORD_WIDTH = 64,
+    parameter int TOTAL_WORD = 4096,
+    parameter int DATA_ADDR_WIDTH = $clog2(TOTAL_WORD),
+    parameter int CHALLENGE_BASE_OFFSET = 0,          //seed rho for SampleInBall
+    //NTT data RAM parameters
     parameter int COEFF_WIDTH = 24,
-    parameter int WORD_LEN = COEFF_WIDTH * 4,
+    parameter int COEFF_PER_WORD = 4,
+    parameter int WORD_COEFF = COEFF_WIDTH * COEFF_PER_WORD,
+    parameter int TOTAL_COEFF = 4096,
+    parameter int NTT_ADDR_WIDTH = $clog2(TOTAL_COEFF),
+    parameter int VECTOR_C_BASE_OFFSET = 0,     //challenge vector 
     //parameter for shake256 instance
-    parameter int DATA_IN_BITS = 64,
-    parameter int DATA_OUT_BITS = 64,
+    parameter int DATA_IN_BITS = WORD_WIDTH,
+    parameter int DATA_OUT_BITS = WORD_WIDTH,
     //parameter for BRAM cache instance
     parameter int ADDR_WIDTH = $clog2(1088 / DATA_OUT_BITS),
-    parameter int DATA_WIDTH = DATA_OUT_BITS,
-    parameter int ADDR_POLY_WIDTH = $clog2(N*COEFF_WIDTH/WORD_LEN+1)
+    parameter int DATA_WIDTH = DATA_OUT_BITS
 )(
-    input  wire                             clk,
-    input  wire                             rst,
-    input  wire                             start,      //pulse 1 cycle
-    input  wire [SEED_SIZE-1 : 0]           rho,        //64 bytes
-    output wire                             done,       //pulse 1 cycle
+    input  wire                         clk,
+    input  wire                         rst,
+    input  wire                         start,      //pulse 1 cycle
+    output wire                         done,       //pulse 1 cycle
+    input  wire [DATA_IN_BITS-1 : 0]    rho,        //64 bytes
     
     //total N * COEFF_WIDTH = 6144 bit = 768 byte
-    output reg we_poly_c,
-    output reg [ADDR_POLY_WIDTH-1:0]        addr_poly_c,  
-    output reg [WORD_LEN-1:0]               din_poly_c,
+    output reg                      we_poly_c,
+    output reg [NTT_ADDR_WIDTH-1:0] addr_poly_c,  
+    output reg [WORD_COEFF-1:0]     din_poly_c,
 
     //shake256 instance
     output reg  [DATA_IN_BITS-1:0]          shake_data_in,
@@ -63,9 +73,9 @@ module SampleInBall #(
     localparam int IS_POSITIVE_ONE = 1;
     localparam int IS_NEGATIVE_ONE = 2;
     reg [$clog2(N) : 0]         coeff_unpack_cnt;
-    reg [WORD_LEN-1:0]          coeff_per_word;
-    reg [$clog2(WORD_LEN):0]    coeff_per_word_cnt;
-    assign done = coeff_unpack_cnt >= N + (WORD_LEN/COEFF_WIDTH);
+    reg [WORD_COEFF-1:0]          coeff_per_word;
+    reg [$clog2(WORD_COEFF):0]    coeff_per_word_cnt;
+    assign done = coeff_unpack_cnt >= N + (WORD_COEFF/COEFF_WIDTH);
 
     function [COEFF_WIDTH-1:0] HammingModQ;
         input [1:0] b;
@@ -248,7 +258,7 @@ module SampleInBall #(
 
                     if(in_ready) begin
                         in_valid <= 1;
-                        shake_data_in <= rho[feed_cnt +: DATA_IN_BITS];
+                        shake_data_in <= rho;
                         feed_cnt <= feed_cnt + DATA_IN_BITS;
                         if(feed_cnt + DATA_IN_BITS >= SEED_SIZE) 
                             in_last <= 1; //send final block with in_last = 1

@@ -95,9 +95,8 @@ def test_expandMask():
         print("ExpandMask output:")
         for row in M:
             for coeff in row:
-                # if(coeff < 0): print(f"{i}: {8380417 + coeff}")
-                # else: 
-                print(f"{i}: {coeff}")
+                if(coeff < 0): print(f"{i}: {8380417 + coeff}")
+                else: print(f"{i}: {coeff}")
                 i += 1
         sys.stdout = sys.__stdout__ 
 
@@ -119,7 +118,7 @@ def compare_output(file1, file2):
     print("Files are identical.")
 
 if __name__ == "__main__":
-    # test_sample_in_ball()
+    test_sample_in_ball()
     # test_expandA()
     # test_expandS()
     # test_expandMask()

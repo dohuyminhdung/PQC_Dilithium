@@ -1,26 +1,31 @@
 `timescale 1ps/1ps
 
 module SampleInBall_tb;
-    //Parameters match DUT       
-    localparam int N = 256;
-    localparam int COEFF_WIDTH = 24;         
-    localparam int LAMBDA = 256;             
+    //localparam for ML-DSA87              
+    localparam int LAMBDA = 256;         
     localparam int TAU = 60;
-    localparam int SEED_SIZE = LAMBDA/4*8;
-    localparam int WORD_LEN = 96;
+    //raw data RAM localparam
+    localparam WORD_WIDTH = 64;
+    localparam TOTAL_WORD = 4096;
+    localparam DATA_ADDR_WIDTH = $clog2(TOTAL_WORD);
+    localparam CHALLENGE_BASE_OFFSET = 0;          //seed rho for SampleInBall
+    //NTT data RAM localparam
+    localparam COEFF_WIDTH = 24;
+    localparam COEFF_PER_WORD = 4;
+    localparam WORD_COEFF = COEFF_WIDTH * COEFF_PER_WORD;
+    localparam TOTAL_COEFF = 4096;
+    localparam NTT_ADDR_WIDTH = $clog2(TOTAL_COEFF);
+    localparam VECTOR_C_BASE_OFFSET = 0;     //challenge vector
     //parameter for shake256 instance
-    parameter int DATA_IN_BITS = 64;
-    parameter int DATA_OUT_BITS = 64;
-    //parameter for BRAM cache instance
-    parameter int ADDR_POLY_WIDTH = $clog2(256*COEFF_WIDTH/WORD_LEN+1);
-    localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;     
+    localparam DATA_IN_BITS = WORD_WIDTH;
+    localparam DATA_OUT_BITS = WORD_WIDTH;   
 
     //DUT signals
-    logic                           clk, rst, start, done;
-    logic [SEED_SIZE-1 : 0]         rho;
-    logic                           we_poly_c;
-    logic [ADDR_POLY_WIDTH-1:0]     addr_poly_c;  
-    logic [WORD_LEN-1:0]            din_poly_c;
+    logic                       clk, rst, start, done;
+    logic [DATA_IN_BITS-1 : 0]  rho;
+    logic                       we_poly_c;
+    logic [NTT_ADDR_WIDTH-1:0]  addr_poly_c;  
+    logic [WORD_COEFF-1:0]      din_poly_c;
     //shake256 instance
     logic [DATA_IN_BITS-1:0]        shake_data_in;
     logic                           in_valid;
@@ -34,11 +39,7 @@ module SampleInBall_tb;
     // Instantiate the DUT
     SampleInBall #(
         .LAMBDA(LAMBDA),
-        .TAU(TAU),
-        .SEED_SIZE(SEED_SIZE),
-        .DATA_IN_BITS(DATA_IN_BITS),
-        .DATA_OUT_BITS(DATA_OUT_BITS),
-        .ADDR_POLY_WIDTH(ADDR_POLY_WIDTH)
+        .TAU(TAU)
     ) sample_in_ball (
         .clk(clk),
         .rst(rst),
@@ -69,16 +70,19 @@ module SampleInBall_tb;
         .in_valid(in_valid),
         .in_last(in_last),
         .last_len(last_len),
+        .cache_rst(0),
+        .cache_rd(0),
+        .cache_wr(0),
         .out_ready(out_ready),
         .data_out(shake_data_out),
         .out_valid(out_valid),
         .in_ready(in_ready)
     );
 
-    logic [WORD_LEN-1:0] dout_a = 0, dout_b = 0;
+    logic [WORD_COEFF-1:0] dout_a = 0, dout_b = 0;
     dp_ram_true #(
-        .ADDR_WIDTH(ADDR_POLY_WIDTH),
-        .DATA_WIDTH(WORD_LEN)
+        .ADDR_WIDTH(NTT_ADDR_WIDTH),
+        .DATA_WIDTH(WORD_COEFF)
     ) poly_c (
         .clk(clk),
         .we_a(we_poly_c),
@@ -90,6 +94,13 @@ module SampleInBall_tb;
         .din_b(0),
         .dout_b(dout_b)
     );
+
+    task automatic send_block(input [DATA_IN_BITS-1:0] din);
+        begin
+            @(posedge clk);
+            rho  <= din;
+        end
+    endtask
 
     integer i, j, cnt = 0, fd;
 
@@ -111,9 +122,17 @@ module SampleInBall_tb;
         @(posedge clk);
         start = 1;
         // =================== WRITE YOUR TEST logic ===================
-        rho = 512'h1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef;
         @(posedge clk);
         start = 0;
+        rho = 64'h1234567890abcdef; //first block
+
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
 
         wait(done);
         @(posedge clk);

@@ -761,10 +761,10 @@ class Dilithium:
             # for i in range(64): print(f"{i}: {h[i]}")
         for i in range(256 - self.tau, 256):
             j = ctx.read(1)     # H.Squeeze(ctx, 1)
-            if(self.print_matrix == 1): print(j.hex())
+            # if(self.print_matrix == 1): print(j.hex())
             while j[0] > i:
                 j = ctx.read(1) # H.Squeeze(ctx, 1)
-                if(self.print_matrix == 1): print(j.hex())
+                # if(self.print_matrix == 1): print(j.hex())
             c[i] = c[j[0]]
             c[j[0]] = (-1) ** h[i + self.tau - 256]
         return c

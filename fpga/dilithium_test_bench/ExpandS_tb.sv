@@ -1,59 +1,52 @@
 `timescale 1ps/1ps
 
 module ExpandS_tb;
-    localparam int SEED_SIZE = 64*8;             //SHALL NOT MODIFY 
-    localparam int REJ_BOUNDED_POLY_SEED = 66*8; //SHALL NOT MODIFY
-    localparam int WORD_LEN = 96;  
+    //localparam for ML-DSA87
     localparam int K = 8;                // number of rows
-    localparam int L = 7;                // number of columns             
-    localparam int N   = 256;            //logic 256 coefficients from a polynomial   
+    localparam int L = 7;                // number of columns                
     localparam int ETA = 2;              //private key range in Dilithium
-    localparam int COEFF_WIDTH = 24;      //coefficient is guarantee in range [-eta, eta] = [-2, 2]
+    //raw data RAM localparam
+    localparam WORD_WIDTH = 64;
+    localparam TOTAL_WORD = 4096;
+    localparam DATA_ADDR_WIDTH = $clog2(TOTAL_WORD);
+    localparam int RHO_PRIME_BASE_OFFSET = 0;    //seed rho_prime for expandS
+    //NTT data RAM localparam
+    localparam COEFF_WIDTH = 24;  //coefficient is guarantee in range [-eta, eta] = [-2, 2]
+    localparam COEFF_PER_WORD = 4;
+    localparam WORD_COEFF = COEFF_WIDTH * COEFF_PER_WORD;
+    localparam TOTAL_COEFF = 4096;
+    localparam NTT_ADDR_WIDTH = $clog2(TOTAL_COEFF);    //$clog2((L+K)*N*COEFF_WIDTH/WORD_COEFF);
+    localparam VECTOR_S_BASE_OFFSET = 0;    //vector s1, s2  
     //localparam for shake256 instance
-    localparam int DATA_IN_BITS = 64;
-    localparam int DATA_OUT_BITS = 64;
-    //localparam for BRAM cache instance
-    localparam int ADDR_WIDTH = $clog2(1088 / DATA_OUT_BITS);
-    localparam int DATA_WIDTH = DATA_OUT_BITS;
-    localparam int ADDR_POLY_WIDTH = $clog2((L+K)*N*COEFF_WIDTH/WORD_LEN);
-    localparam int COEFF_PER_WORD = WORD_LEN / COEFF_WIDTH;
+    localparam int DATA_IN_BITS = WORD_WIDTH;
+    localparam int DATA_OUT_BITS = WORD_WIDTH;
     
     //DUT signals
-    logic                             clk;
-    logic                             rst;
-    logic                             start;      //pulse 1 cycle        
-    logic [SEED_SIZE-1 : 0]           rho;        //64 bytes         
-    logic                             done;       //sampling done, pulse 1 cycle     
-    
-    logic we_vector_s;
-    logic [ADDR_POLY_WIDTH -1:0]    addr_vector_s;  //(L+K)*N/2 = 15 * 256 / 2 = 1920 words (log2(1920) = 11)
-    logic [WORD_LEN-1:0]            din_vector_s;   
+    logic                           clk, rst, start, done;     
+    logic [DATA_IN_BITS-1 : 0]      rho;        //64 bytes
+    logic                           we_vector_s;
+    logic [NTT_ADDR_WIDTH -1:0]     addr_vector_s;  //(L+K)*N/2 = 15 * 256 / 2 = 1920 words (log2(1920) = 11)
+    logic [WORD_COEFF-1:0]          din_vector_s;   
     
     //shake256 instance
-    logic                               absorb_next_poly; //shake force reset
-    logic  [DATA_IN_BITS-1:0]           shake_data_in;
-    logic                               in_valid;
-    logic                               in_last;
-    logic [$clog2(DATA_IN_BITS) : 0]    last_len;
-    logic                               out_ready;
-    logic [DATA_OUT_BITS-1:0]           shake_data_out;
-    logic                               out_valid;
-    logic                               in_ready;
+    logic                           absorb_next_poly; //shake force reset
+    logic  [DATA_IN_BITS-1:0]       shake_data_in;
+    logic                           in_valid;
+    logic                           in_last;
+    logic [$clog2(DATA_IN_BITS):0]  last_len;
+    logic                           cache_rst;
+    logic                           cache_rd;
+    logic                           cache_wr;
+    logic                           out_ready;
+    logic [DATA_OUT_BITS-1:0]       shake_data_out;
+    logic                           out_valid;
+    logic                           in_ready;
 
     // Instantiate the DUT
     ExpandS #(
-        .SEED_SIZE(SEED_SIZE),
-        .REJ_BOUNDED_POLY_SEED(REJ_BOUNDED_POLY_SEED),
-        .WORD_LEN(WORD_LEN),
         .K(K),
         .L(L),
-        .N(N),
-        .ETA(ETA),
-        .COEFF_WIDTH(COEFF_WIDTH),
-        .DATA_IN_BITS(DATA_IN_BITS),
-        .DATA_OUT_BITS(DATA_OUT_BITS),
-        .ADDR_WIDTH(ADDR_WIDTH),
-        .DATA_WIDTH(DATA_WIDTH)
+        .ETA(ETA)
     ) expandS (
         .clk(clk),
         .rst(rst),
@@ -63,11 +56,14 @@ module ExpandS_tb;
         .we_vector_s(we_vector_s),
         .addr_vector_s(addr_vector_s),
         .din_vector_s(din_vector_s),
+        //shake256 instance
         .absorb_next_poly(absorb_next_poly),
         .shake_data_in(shake_data_in),
         .in_valid(in_valid),
         .in_last(in_last),
         .last_len(last_len),
+        .cache_rd(cache_rd),
+        .cache_wr(cache_wr),
         .out_ready(out_ready),
         .shake_data_out(shake_data_out),
         .out_valid(out_valid),
@@ -85,6 +81,9 @@ module ExpandS_tb;
         .in_valid(in_valid),
         .in_last(in_last),
         .last_len(last_len),
+        .cache_rst(cache_rst),
+        .cache_rd(cache_rd),
+        .cache_wr(cache_wr),
         .out_ready(out_ready),
         .data_out(shake_data_out),
         .out_valid(out_valid),
@@ -92,11 +91,11 @@ module ExpandS_tb;
     );
 
     //dp_ram_true signals
-    logic [WORD_LEN-1:0]    dout_a = 0, dout_b = 0;
+    logic [WORD_COEFF-1:0]    dout_a = 0, dout_b = 0;
 
     dp_ram_true #(
-        .ADDR_WIDTH(ADDR_POLY_WIDTH),
-        .DATA_WIDTH(WORD_LEN)
+        .ADDR_WIDTH(NTT_ADDR_WIDTH),
+        .DATA_WIDTH(WORD_COEFF)
     ) vector_s (
         .clk(clk),
         .we_a(we_vector_s),
@@ -109,15 +108,24 @@ module ExpandS_tb;
         .dout_b(dout_b)
     );
 
+    task automatic send_block(input [DATA_IN_BITS-1:0] din);
+        begin
+            @(posedge clk);
+            rho  <= din;
+        end
+    endtask
+
     integer i, j, cnt = 0, fd;
 
     initial clk = 0;
     always #5 clk = ~clk;
 
     initial begin
-        rst = 1; 
+        rst = 1;
+        cache_rst = 1;
         repeat (5) @(posedge clk);
         rst = 0;
+        cache_rst = 0;
     end
 
     initial begin
@@ -127,10 +135,17 @@ module ExpandS_tb;
         @(posedge clk);
         start = 1;
         // =================== WRITE YOUR TEST INPUT HERE ===================
-        rho = 512'h1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef_1234567890abcdef;
-        
         @(posedge clk);
         start = 0;
+        rho = 64'h1234567890abcdef; //first block
+
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
+        send_block(64'h1234567890abcdef);
         
         wait(done);
         @(posedge clk);
