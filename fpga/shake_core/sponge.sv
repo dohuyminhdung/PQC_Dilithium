@@ -209,7 +209,7 @@ module sponge #(
     always @(posedge clk) begin
         if (rst) begin      
             // Output signals
-            data_out    <= 32'hDEADCAFE;
+            data_out    <= DATA_OUT_BITS'hDEADCAFE;
             out_valid   <= 1'b0;
             in_ready    <= 1'b1;
 
@@ -236,7 +236,7 @@ module sponge #(
             case (state)
                 IDLE: begin
                     // Output signals
-                    data_out    <= 32'hDEADBEEF;
+                    data_out    <= DATA_OUT_BITS'hDEADBEEF;
                     out_valid   <= 1'b0;
                     in_ready    <= 1'b1;
 
