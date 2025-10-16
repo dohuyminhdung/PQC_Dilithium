@@ -26,17 +26,33 @@ module Sign_internal #(
     parameter int ETA = 2,              //the bound for coefficients of secret vectors s1, s2
     parameter int BETA = TAU * ETA,     //valid check constant in step 23
     parameter int OMEGA = 75,           //max number of 1's in the hint vector h 
+    parameter int KAPPA_BOUND = 814*L,  //Appendix C - Loop Bounds for ML-DSA.Sign_internal
+                                        //FIPS204, page 52, slide 62
     //raw data RAM parameters
     parameter int WORD_WIDTH = 64,
     parameter int TOTAL_WORD = 4096,
     parameter int DATA_ADDR_WIDTH = $clog2(TOTAL_WORD),
+
     parameter int RHO_BASE_OFFSET = 0,          //seed rho for expandA
+    parameter int RHO_END_OFFSET = RHO_BASE_OFFSET + (32*8/WORD_WIDTH),
+
     parameter int RHO_PRIME_BASE_OFFSET = 0,    //seed rho' for expandS
+    parameter int RHO_PRIME_END_OFFSET = RHO_PRIME_BASE_OFFSET + (64*8/WORD_WIDTH),
+
     parameter int PUBLIC_KEY_BASE_OFFSET = 0,   //rho, t1
     parameter int PUBLIC_KEY_SIZE = (32 + 32 * K * ($clog2(q-1) - D)) * 8, //2592 bytes for ML-DSA87
+    parameter int PUBLIC_KEY_END_OFFSET = PUBLIC_KEY_BASE_OFFSET + (PUBLIC_KEY_SIZE/WORD_WIDTH),
+
     parameter int SECRET_KEY_BASE_OFFSET = 0,   //rho, K, tr, s1.encode, s2.encode, t0
+    parameter int SECRET_KEY_SIZE = (32 + 32 + 64 + 32 * ((K+L) * $clog2(ETA*2+1) + D * K)), //4896 bytes for ML-DSA87
+    parameter int SECRET_KEY_END_OFFSET = SECRET_KEY_BASE_OFFSET + SECRET_KEY_SIZE,  
+
     parameter int K_BASE_OFFSET = SECRET_KEY_BASE_OFFSET + (32*8/WORD_WIDTH),   //K is use for signing
+    parameter int K_END_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH),
+
     parameter int TR_BASE_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH)            //tr is use for signing
+    parameter int TR_END_OFFSET  = TR_BASE_OFFSET + (64*8/WORD_WIDTH),
+
     parameter int RHO_Y_BASE_OFFSET = 0,        //seed rho'' for expandMask
     parameter int CHALLENGE_BASE_OFFSET = 0,    //seed rho for SampleInBall
     parameter int COMMITMENT_BASE_OFFSET = 0,   //address of c~ at step 15
@@ -44,15 +60,35 @@ module Sign_internal #(
     parameter int MESSAGE_BASE_OFFSET = 0;  //message to sign, M' = BytesToBits(IntegerToBytes(0, 1) ∥ IntegerToBytes(|𝑐𝑡𝑥|, 1) ∥ 𝑐𝑡𝑥) ∥ M
                                             // TR || BytesToBits(IntegerToBytes(0, 1) ∥ IntegerToBytes(|𝑐𝑡𝑥|, 1) ∥ 𝑐𝑡𝑥) ∥ M
                                             // Let software handle concating ctx with message: TR || M'
+
+    parameter int MU_BASE_OFFSET = 0,       //seed after hashing message in step 6
+    parameter int MU_END_OFFSET = MU_BASE_OFFSET + (64*8/WORD_WIDTH),
+
+    parameter int RND_BASE_OFFSET = 0,      //rnd seed for absorbing in step 7
+    parameter int RND_END_OFFSET = RND_BASE_OFFSET + (32*8/WORD_WIDTH), 
     //NTT data RAM parameters
     parameter int COEFF_WIDTH = 24,
     parameter int COEFF_PER_WORD = 4,
     parameter int WORD_COEFF = COEFF_WIDTH * COEFF_PER_WORD,
     parameter int TOTAL_COEFF = 4096,
     parameter int NTT_ADDR_WIDTH = $clog2(TOTAL_COEFF),
-    parameter int MATRIX_A_BASE_OFFSET = 0,     //matrixA           from expandA 
+
+    parameter int MATRIX_A_BASE_OFFSET = 0,     //matrixA           from expandA
+    parameter int MATRIX_A_TOTAL_WORD = (K*L*N/COEFF_PER_WORD), 
+    parameter int MATRIX_A_END_OFFSET = MATRIX_A_BASE_OFFSET + MATRIX_A_TOTAL_WORD,
+
     parameter int VECTOR_S_BASE_OFFSET = 0,     //vector s1, s2     from expandS
-    parameter int VECTOR_T_BASE_OFFSET = 0,     //vector t          from calculating t = A*s1 + s2    
+    parameter int VECTOR_S_TOTAL_WORD = (K+L)*N/COEFF_PER_WORD,
+    parameter int VECTOR_S_END_OFFSET = VECTOR_S_BASE_OFFSET + VECTOR_S_TOTAL_WORD,
+    parameter int VECTOR_S1_BASE_OFFSET = VECTOR_S_BASE_OFFSET,
+    parameter int VECTOR_S2_BASE_OFFSET = VECTOR_S1_BASE_OFFSET + (L*N/COEFF_PER_WORD),
+    parameter int VECTOR_S1_END_OFFSET = VECTOR_S2_BASE_OFFSET,
+    parameter int VECTOR_S2_END_OFFSET = VECTOR_S_END_OFFSET,
+
+    parameter int VECTOR_T_BASE_OFFSET = 0,     //vector t          from calculating t = A*s1 + s2   
+    parameter int VECTOR_T_TOTAL_WORD = K * N / COEFF_PER_WORD,
+    parameter int VECTOR_T_END_OFFSET = VECTOR_T_BASE_OFFSET + VECTOR_T_TOTAL_WORD;   
+
     parameter int VECTOR_Y_BASE_OFFSET = 0,     //vector y          from expandMask
     parameter int VECTOR_W_BASE_OFFSET = 0,     //vector w          from calculating w = A*y
     parameter int VECTOR_C_BASE_OFFSET = 0,     //challenge vector  form NTT(SampleInBall)
@@ -73,8 +109,12 @@ module Sign_internal #(
     input  wire                     rst,
     input  wire                     start,
     output reg                      done,
-    input  wire                     msg_num_block,
-    input  wire                     msg_last_block_len,
+    //real time communicating with PS for hashing message
+    output reg                              msg_ready,
+    input  wire                             msg_valid,
+    input  wire [DATA_IN_BITS-1:0]          msg_block,
+    input  wire                             msg_last_block,
+    input  wire [$clog2(DATA_IN_BITS):0]    msg_block_last_len,
     //raw data RAM signals
     output reg                          ram_we_a_data,
     output reg  [$clog2(TOTAL_WORD):0]  ram_addr_a_data,
@@ -124,6 +164,7 @@ module Sign_internal #(
     //TODO
 );
     localparam gamma1 = 1 << GAMMA1;
+    reg [$clog2(KAPPA_BOUND)-1:0] kappa;
 
     // FSM state encoding
     reg [5:0] state, next_state;
@@ -131,39 +172,44 @@ module Sign_internal #(
     localparam NTT_S1           = 1;
     localparam NTT_S2           = 2;
     localparam NTT_T0           = 3;
-    localparam HASH_MSG         = 4;
-    localparam HASH_SEED        = 5;
-    localparam EXPAND_MASK      = 6;    //generate vector y
-    localparam CALCULATE_W_0    = 7;    //calculate NTT(y)
-    localparam CALCULATE_W_1    = 8;    //calculate A * NTT(y)
-    localparam CALCULATE_W_2    = 9;    //calculate INTT(A * NTT(y))
-    localparam HIGH_BITS_W      = 10;
-    localparam HASH_COMMITMENT  = 11;
-    localparam SAMPLE_IN_BALL   = 12;
-    localparam NTT_C            = 13;
-    localparam CALCULATE_CS1_0  = 14;   //calculate c*s1
-    localparam CALCULATE_CS1_1  = 15;   //calculate INTT(c*s1)
-    localparam CALCULATE_CS2_0  = 16;   //calculate c*s2
-    localparam CALCULATE_CS2_1  = 17;   //calculate INTT(c*s2)
-    localparam CALCULATE_Z      = 18;
-    localparam VALIDITY_CHECK_0 = 19;   //compare infinityNorm(z) >= GAMMA1-BETA ? deny : accept
-    localparam LOW_BITS_0       = 20;   //calculate w - c*s2
-    localparam LOW_BITS_1       = 21;   //calculate r0
-    localparam VALIDITY_CHECK_1 = 22;   //compare infinityNorm(r0) >= GAMMA2-BETA ? deny : accept
-    localparam CALCULATE_CT0_0  = 23;   //calculate c*t0
-    localparam CALCULATE_CT0_1  = 24;   //calculate INTT(c*t0)
-    localparam VALIDITY_CHECK_2 = 25;   //compare infinityNorm(c*t0) >= GAMMA2 ? deny : accept
-    localparam MAKE_HINT        = 26;   //calculate vector hint h
-    localparam VALIDITY_CHECK_3 = 27;   //compare (number of 1's in h) > OMEGA ? deny : accept
-    localparam SIG_ENCODE_Z     = 28;
-    localparam SIG_ENCODE_H     = 29;
+    localparam MU_ASBORB_TR     = 4;    //absorb TR in step 6
+    localparam MU_ABSORB_MSG    = 5;    //absorb message in step 6
+    localparam MU_SQUEEZE       = 6;    //squeeze mu in step 6
+    localparam RHO_PP_ABSORB_K  = 7;    //absorb K in step 7
+    localparam RHO_PP_ABSORB_RND= 8;    //absorb random seed from RBG in step 7
+    localparam RHO_PP_ABSORB_MU = 9;    //absorb mu in step 7
+    localparam RHO_PP_SQUEEZE   = 10;   //squeeze rho'' in step 7
+    localparam EXPAND_MASK      = 11;   //generate vector y
+    localparam CALCULATE_W_0    = 12;   //calculate NTT(y)
+    localparam CALCULATE_W_1    = 13;   //calculate A * NTT(y)
+    localparam CALCULATE_W_2    = 14;   //calculate INTT(A * NTT(y))
+    localparam HIGH_BITS_W      = 15;
+    localparam HASH_COMMITMENT  = 16;
+    localparam SAMPLE_IN_BALL   = 17;
+    localparam NTT_C            = 18;
+    localparam CALCULATE_CS1_0  = 19;   //calculate c*s1
+    localparam CALCULATE_CS1_1  = 20;   //calculate INTT(c*s1)
+    localparam CALCULATE_CS2_0  = 21;   //calculate c*s2
+    localparam CALCULATE_CS2_1  = 22;   //calculate INTT(c*s2)
+    localparam CALCULATE_Z      = 23;
+    localparam VALIDITY_CHECK_0 = 24;   //compare infinityNorm(z) >= GAMMA1-BETA ? deny : accept
+    localparam LOW_BITS_0       = 25;   //calculate w - c*s2
+    localparam LOW_BITS_1       = 26;   //calculate r0
+    localparam VALIDITY_CHECK_1 = 27;   //compare infinityNorm(r0) >= GAMMA2-BETA ? deny : accept
+    localparam CALCULATE_CT0_0  = 28;   //calculate c*t0
+    localparam CALCULATE_CT0_1  = 29;   //calculate INTT(c*t0)
+    localparam VALIDITY_CHECK_2 = 30;   //compare infinityNorm(c*t0) >= GAMMA2 ? deny : accept
+    localparam MAKE_HINT        = 31;   //calculate vector hint h
+    localparam VALIDITY_CHECK_3 = 32;   //compare (number of 1's in h) > OMEGA ? deny : accept
+    localparam SIG_ENCODE_Z     = 33;
+    localparam SIG_ENCODE_H     = 34;
 `ifdef DECODE_SECRET_KEY
-    localparam SK_DECODE_RHO    = 30;
-    localparam SK_DECODE_K      = 31;
-    localparam SK_DECODE_TR     = 32;
-    localparam SK_DECODE_S      = 33;
-    localparam SK_DECODE_T0     = 34;
-    localparam EXPAND_A         = 35;
+    localparam SK_DECODE_RHO    = 35;
+    localparam SK_DECODE_K      = 36;
+    localparam SK_DECODE_TR     = 37;
+    localparam SK_DECODE_S      = 38;
+    localparam SK_DECODE_T0     = 39;
+    localparam EXPAND_A         = 40;
 
     //ExpandA instance
     reg                     expandA_start;
@@ -286,8 +332,12 @@ module Sign_internal #(
     );
 
     /* ==================== INTERNAL SIGNALS ==================== */
+    reg 
     localparam HIGH_BITS_LEN = $clog2((Q-1)/(2*GAMMA2)-1);
     localparam LOW_BITS_LEN  = COEFF_WIDTH - HIGH_BITS_LEN;
+    //MU_squeezE
+    localparam MU_SIZE = 64*8;
+    localparam MU_END_OFFSET = MU_BASE_OFFSET + MU_SIZE / WORD_WIDTH;
     /* ==================== INTERNAL SIGNALS ==================== */
 
     /* ====================  OTHER FUNCTIONS ==================== */
@@ -400,10 +450,29 @@ module Sign_internal #(
             end
             NTT_T0: begin
             end
-            HASH_MSG: begin
-
+            MU_ASBORB_TR: begin
+                if(ram_addr_b_data >= TR_END_OFFSET-1)
+                    next_state = MU_ABSORB_MSG;
             end
-            HASH_SEED: begin
+            MU_ABSORB_MSG: begin
+                if(msg_last_block)
+                    next_state = MU_SQUEEZE;
+            end
+            MU_SQUEEZE: begin
+                if(ram_addr_a_data >= MU_END_OFFSET-1)
+                    next_state = RHO_PP_ABSORB_K;
+            end
+            RHO_PP_ABSORB_K: begin
+                if(ram_addr_b_data >= K_END_OFFSET)
+                    next_state = RHO_PP_ABSORB_RND;
+            end
+            RHO_PP_ABSORB_RND: begin
+                if(ram_addr_b_data >= RND_END_OFFSET)
+                    next_state = RHO_PP_ABSORB_MU;
+            end
+            RHO_PP_ABSORB_MU: begin
+                if(ram_addr_b_data >= MU_END_OFFSET-1)
+                    next_state = EXPAND_MASK;
             end
             EXPAND_MASK: begin
             end
@@ -463,7 +532,9 @@ module Sign_internal #(
             case(state)
                 IDLE: begin
                     done <= 0;
-                    //TODO: Reset signals that shall reset
+                    kappa <= 0;
+                    msg_ready <= 0;
+                    //TODO: Reset signals that should reset
                 end
     `ifdef DECODE_SECRET_KEY //Currently do not implement these
                 SK_DECODE_RHO: begin
@@ -485,10 +556,63 @@ module Sign_internal #(
                 end
                 NTT_T0: begin
                 end
-                HASH_MSG: begin
-
+                MU_ASBORB_TR: begin
+                    shake256_in_valid <= 0;
+                    if(shake256_in_ready) begin
+                        shake256_in_valid <= 1;
+                        shake256_in_last <= 0;
+                        shake256_last_len <= 0;
+                        shake256_data_in <= ram_dout_b_data;
+                        ram_addr_b_data <= ram_addr_b_data + 1; 
+                    end
                 end
-                HASH_SEED: begin
+                MU_ABSORB_MSG: begin
+                    shake256_data_in <= msg_block;
+                    shake256_in_valid <= msg_valid;
+                    shake256_in_last <= msg_last_block;
+                    shake256_last_len <= msg_block_last_len;
+                    msg_ready <= shake256_in_ready;
+                    //out_ready <= 0;
+                    if(msg_last_block) begin
+                        out_ready <= 1;
+                        ram_addr_a_data <= MU_BASE_OFFSET-1;
+                    end
+                end
+                MU_SQUEEZE: begin
+                    ram_we_a_data <= 0;
+                    if(shake256_out_valid) begin
+                        ram_we_a_data <= 1;
+                        ram_addr_a_data <= ram_addr_a_data + 1;
+                        ram_din_a_data <= shake256_data_out;
+                    end
+                    if(ram_addr_a_data >= MU_END_OFFSET-1) begin //setup for next state
+                        shake256_rst <= 1;
+                        ram_addr_b_data <= K_BASE_OFFSET - 1;
+                    end
+                end
+                RHO_PP_ABSORB_K: begin
+                    shake256_rst <= 0;
+                    shake256_in_valid <= 0;
+                    if(shake256_in_ready) begin
+                        shake256_in_valid <= 1;
+                        shake256_in_last <= 0;
+                        shake256_last_len <= 0;
+                        shake256_data_in <= ram_dout_b_data;
+                        ram_addr_b_data <= ram_addr_b_data == K_END_OFFSET ?
+                                            RND_BASE_OFFSET : ram_addr_b_data + 1; 
+                    end
+                end
+                RHO_PP_ABSORB_RND: begin
+                    shake256_data_in <= ram_dout_b_data;
+                    ram_addr_b_data <= ram_addr_b_data == RND_END_OFFSET ?
+                                        MU_BASE_OFFSET : ram_addr_b_data + 1; 
+                end
+                RHO_PP_ABSORB_MU: begin
+                    shake256_data_in <= ram_dout_b_data;
+                    ram_addr_b_data <= ram_addr_b_data + 1;
+                    if(ram_addr_b_data >= MU_END_OFFSET-1) begin //setup for next state
+                        //TODO
+                    end
                 end
                 EXPAND_MASK: begin
                 end

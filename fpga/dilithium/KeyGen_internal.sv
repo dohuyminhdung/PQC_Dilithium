@@ -17,24 +17,47 @@ module KeyGen_internal #(
     parameter int WORD_WIDTH = 64,
     parameter int TOTAL_WORD = 4096,
     parameter int DATA_ADDR_WIDTH = $clog2(TOTAL_WORD),
+
     parameter int RHO_BASE_OFFSET = 0,          //seed rho for expandA
+    parameter int RHO_END_OFFSET = RHO_BASE_OFFSET + (32*8/WORD_WIDTH),
+
     parameter int RHO_PRIME_BASE_OFFSET = 0,    //seed rho' for expandS
+    parameter int RHO_PRIME_END_OFFSET = RHO_PRIME_BASE_OFFSET + (64*8/WORD_WIDTH),
+
     parameter int PUBLIC_KEY_BASE_OFFSET = 0,   //rho, t1
     parameter int PUBLIC_KEY_SIZE = (32 + 32 * K * ($clog2(q-1) - D)) * 8, //2592 bytes for ML-DSA87
+    parameter int PUBLIC_KEY_END_OFFSET = PUBLIC_KEY_BASE_OFFSET + (PUBLIC_KEY_SIZE/WORD_WIDTH),
+
     parameter int SECRET_KEY_BASE_OFFSET = 0,   //rho, K, tr, s1.encode, s2.encode, t0
+    parameter int SECRET_KEY_SIZE = (32 + 32 + 64 + 32 * ((K+L) * $clog2(ETA*2+1) + D * K)), //4896 bytes for ML-DSA87
+    parameter int SECRET_KEY_END_OFFSET = SECRET_KEY_BASE_OFFSET + SECRET_KEY_SIZE,  
+
     parameter int K_BASE_OFFSET = SECRET_KEY_BASE_OFFSET + (32*8/WORD_WIDTH),   //K is use for signing
-    parameter int TR_BASE_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH)            //tr is use for signing
+    parameter int K_END_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH),
+
+    parameter int TR_BASE_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH),           //tr is use for signing
+    parameter int TR_END_OFFSET  = TR_BASE_OFFSET + (64*8/WORD_WIDTH),
     //NTT data RAM parameters
     parameter int COEFF_WIDTH = 24,
     parameter int COEFF_PER_WORD = 4,
     parameter int WORD_COEFF = COEFF_WIDTH * COEFF_PER_WORD,
     parameter int TOTAL_COEFF = 4096,
     parameter int NTT_ADDR_WIDTH = $clog2(TOTAL_COEFF),
+
     parameter int MATRIX_A_BASE_OFFSET = 0,     //matrixA           from expandA 
+    parameter int MATRIX_A_END_OFFSET = MATRIX_A_BASE_OFFSET + (K*L*N/COEFF_PER_WORD),
+
     parameter int VECTOR_S_BASE_OFFSET = 0,     //vector s1, s2     from expandS
+    parameter int VECTOR_S_TOTAL_WORD = (K+L)*N/COEFF_PER_WORD,
+    parameter int VECTOR_S_END_OFFSET = VECTOR_S_BASE_OFFSET + VECTOR_S_TOTAL_WORD,
     parameter int VECTOR_S1_BASE_OFFSET = VECTOR_S_BASE_OFFSET,
-    parameter int VECTOR_S2_BASE_OFFSET = VECTOR_S1_BASE_OFFSET + (L*N/COEFF_PER_WORD);
-    parameter int VECTOR_T_BASE_OFFSET = 0,     //vector t          from calculating t = A*s1 + s2      
+    parameter int VECTOR_S2_BASE_OFFSET = VECTOR_S1_BASE_OFFSET + (L*N/COEFF_PER_WORD),
+    parameter int VECTOR_S1_END_OFFSET = VECTOR_S2_BASE_OFFSET,
+    parameter int VECTOR_S2_END_OFFSET = VECTOR_S_END_OFFSET,
+
+    parameter int VECTOR_T_BASE_OFFSET = 0,     //vector t          from calculating t = A*s1 + s2   
+    parameter int VECTOR_T_TOTAL_WORD = K * N / COEFF_PER_WORD,
+    parameter int VECTOR_T_END_OFFSET = VECTOR_T_BASE_OFFSET + VECTOR_T_TOTAL_WORD,
     /* Others BASE OFFSET if need here */
     //TODO
     //NTT calculating parameters
@@ -208,36 +231,14 @@ module KeyGen_internal #(
     /* ==================== INTERNAL SIGNALS ==================== */
     //absorb xi
     reg [$clog2(SEED_SIZE):0] feed_cnt;
-    //squeze rho
-    localparam SQUEEZE_RHO_BLOCK = 32*8 / DATA_IN_BITS;
-    localparam RHO_END_OFFSET    = RHO_BASE_OFFSET + SQUEEZE_RHO_BLOCK; 
-    //squeeze rho_prime
-    localparam SQUEEZE_RHO_PRIME_BLOCK = 64*8 / DATA_IN_BITS;
-    localparam RHO_PRIME_END_OFFSET    = RHO_PRIME_BASE_OFFSET + SQUEEZE_RHO_PRIME_BLOCK;
-    //squueze K
-    localparam SQUEEZE_K_BLOCK = 32*8 / DATA_IN_BITS;
-    localparam K_END_OFFSET    = K_BASE_OFFSET + SQUEEZE_K_BLOCK;
-    //expandA
-    localparam EXPAND_A_RHO_BLOCK = RHO_BASE_OFFSET + 32*8 / DATA_WIDTH;
-    //expandS
-    localparam EXPAND_S_RHO_BLOCK = RHO_PRIME_BASE_OFFSET + 64*8 / DATA_WIDTH;
-    localparam VECTOR_S_TOTAL_WORD = (K+L)*N/COEFF_PER_WORD;
-    localparam VECTOR_S_END_OFFSET = VECTOR_S_BASE_OFFSET + VECTOR_S_TOTAL_WORD;
-    localparam VECTOR_S1_END_OFFSET = VECTOR_S2_BASE_OFFSET;
-    localparam VECTOR_S2_END_OFFSET = VECTOR_S_END_OFFSET;
     // pk_encode_rho
     reg pk_rho_encode_start; //init = 0
     //pk_encode_t1 + sk_encode_t0
-    localparam VECTOR_T_TOTAL_WORD = K * N / COEFF_PER_WORD;
-    localparam VECTOR_T_END_OFFSET = VECTOR_T_BASE_OFFSET + VECTOR_T_TOTAL_WORD;
-    localparam T1_COEFF_WORD_LEN = 10 * COEFF_WIDTH; //refer OTHER FUNCTIONS to know why
-    localparam T0_COEFF_WORD_LEN = 13 * COEFF_WIDTH; //refer OTHER FUNCTIONS to know why
+    // localparam T1_COEFF_WORD_LEN = (23-D) * COEFF_WIDTH;
+    // localparam T0_COEFF_WORD_LEN = D      * COEFF_WIDTH;
     reg [112:0] t_buffer;       //112 = max(DATA_WIDTH + T1_COEFF_WORD_LEN - GCD(DATA_WIDTH, T1_COEFF_WORD_LEN), 
                                 //          DATA_WIDTH + T0_COEFF_WORD_LEN - GCD(DATA_WIDTH, T0_COEFF_WORD_LEN))
     reg [6  :0] t_buffer_cnt;   //$clog2(112)
-    //sk_encode_tr
-    localparam PUBLIC_KEY_END_OFFSET = PUBLIC_KEY_BASE_OFFSET + (PUBLIC_KEY_SIZE/WORD_WIDTH);
-    localparam TR_END_OFFSET         = TR_BASE_OFFSET + 64 * 8;
     //sk_encode_s
     localparam ETA_PACK_LEN = $clog2(ETA*2+1);
     localparam S_COEFF_WORD_LEN = ETA_PACK_LEN * COEFF_PER_WORD;
@@ -252,9 +253,6 @@ module KeyGen_internal #(
     // Power2Round(r) = (r1, r0) such that r = r1*2^d + r0 mod q 
     // Input:  integer r in Z_q
     // Output: integer (r1, r0)
-    //Calculating bit width for coeff in t1 for pkEncode:
-    //Step 3: SimpleBitPack(polynomial t1[i], 2^(bitlen(q-1)-d)-1)
-    //      = SimpleBitPack(    256 coeff   ,       1023         ) => 10 bit for each coeff
     function [9:0] Power2Round_t1;
         input [COEFF_WIDTH-1:0] r;
         logic [12:0] r0_raw;
@@ -268,7 +266,6 @@ module KeyGen_internal #(
         end
     endfunction
 
-    //Calculating bit width for coeff in t0 for skEncode: 23 - 10 = 13 :DD
     function [12:0] Power2Round_t0;
         input [COEFF_WIDTH-1:0] r;
         logic [12:0] r0_raw;
@@ -484,7 +481,7 @@ module KeyGen_internal #(
                         // in_valid <= 1;
                         expandA_rho <= ram_dout_a_data;     //ready first block of rho for expandA
                         ram_addr_a_data <= ram_addr_a_data + 1; 
-                    end else if(ram_addr_a_data < EXPAND_A_RHO_BLOCK) begin
+                    end else if(ram_addr_a_data < RHO_END_OFFSET) begin
                         // in_valid <= 1;
                         expandA_rho <= ram_dout_a_data;     //feed next block data of rho
                         ram_addr_a_data <= ram_addr_a_data + 1;
@@ -521,7 +518,7 @@ module KeyGen_internal #(
                         // in_valid <= 1;
                         expandA_rho <= ram_dout_a_data;                 //ready first block of rho for expandS
                         ram_addr_a_data <= ram_addr_a_data + 1;
-                    end else if(ram_addr_a_data < EXPAND_S_RHO_BLOCK) begin
+                    end else if(ram_addr_a_data < RHO_PRIME_END_OFFSET) begin
                         // in_valid <= 1;
                         expandS_rho <= ram_dout_a_data;             //feed next block data of rho'
                         ram_addr_a_data <= ram_addr_a_data + 1;
