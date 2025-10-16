@@ -66,6 +66,9 @@ module Sign_internal #(
 
     parameter int RND_BASE_OFFSET = 0,      //rnd seed for absorbing in step 7
     parameter int RND_END_OFFSET = RND_BASE_OFFSET + (32*8/WORD_WIDTH), 
+
+    parameter int RHO_PP_BASE_OFFSET = 0,   //seed rho'' for expandMask
+    parameter int RHO_PP_END_OFFSET = RHO_PP_BASE_OFFSET + (64*8/WORD_WIDTH),
     //NTT data RAM parameters
     parameter int COEFF_WIDTH = 24,
     parameter int COEFF_PER_WORD = 4,
@@ -90,7 +93,13 @@ module Sign_internal #(
     parameter int VECTOR_T_END_OFFSET = VECTOR_T_BASE_OFFSET + VECTOR_T_TOTAL_WORD;   
 
     parameter int VECTOR_Y_BASE_OFFSET = 0,     //vector y          from expandMask
+    parameter int VECTOR_Y_TOTAL_WORD = L * N / COEFF_PER_WORD,
+    parameter int VECTOR_Y_END_OFFSET = VECTOR_Y_BASE_OFFSET + VECTOR_Y_TOTAL_WORD,
+
     parameter int VECTOR_W_BASE_OFFSET = 0,     //vector w          from calculating w = A*y
+    parameter int VECTOR_W_TOTAL_WORD = K * N / COEFF_PER_WORD,
+    parameter int VECTOR_W_END_OFFSET = VECTOR_W_BASE_OFFSET + VECTOR_W_TOTAL_WORD,
+
     parameter int VECTOR_C_BASE_OFFSET = 0,     //challenge vector  form NTT(SampleInBall)
     parameter int VECTOR_W1_BASE_OFFSET = 0,    //vector w1         from calculating w1 = HighBits(w)
     parameter int VECTOR_S1_BASE_OFFSET = VECTOR_S_BASE_OFFSET,
@@ -472,6 +481,10 @@ module Sign_internal #(
             end
             RHO_PP_ABSORB_MU: begin
                 if(ram_addr_b_data >= MU_END_OFFSET-1)
+                    next_state = RHO_PP_SQUEEZE;
+            end
+            RHO_PP_SQUEEZE: begin
+                if(ram_addr_a_data >= RHO_PP_END_OFFSET-1)
                     next_state = EXPAND_MASK;
             end
             EXPAND_MASK: begin
@@ -611,10 +624,57 @@ module Sign_internal #(
                     shake256_data_in <= ram_dout_b_data;
                     ram_addr_b_data <= ram_addr_b_data + 1;
                     if(ram_addr_b_data >= MU_END_OFFSET-1) begin //setup for next state
-                        //TODO
+                        shake256_in_last <= 1;
+                        shake256_last_len <= DATA_WIDTH;
+                        ram_addr_a_data = RHO_PP_BASE_OFFSET - 1;
+                    end
+                end
+                RHO_PP_SQUEEZE: begin
+                    ram_we_a_data <= 0;
+                    if(shake256_out_valid) begin
+                        ram_we_a_data <= 1;
+                        ram_addr_a_data <= ram_addr_a_data + 1;
+                        ram_din_a_data <= shake256_data_out;
+                    end
+                    if(ram_addr_a_data >= RHO_PP_END_OFFSET-1) begin
+                        shake256_rst <= 1;
+                        shake256_cache_rst <= 1;
+                        ram_addr_b_data <= RHO_PP_BASE_OFFSET;
                     end
                 end
                 EXPAND_MASK: begin
+                    ram_we_a_data <= expandMask_ram_we;
+                    ram_addr_a_data <= expandMask_ram_addr;
+                    ram_din_a_data <= expandMask_ram_din;
+
+                    //For ExpandMask's absorb state, may need refactor that this state feed rho instead of the module
+                    shake256_rst <= expandMask_shake_rst;
+                    shake256_data_in <= expandMask_shake_data_in;
+                    shake256_in_valid <= expandMask_shake_in_valid;
+                    shake256_in_last <= expandMask_shake_in_last;
+                    shake256_last_len <= expandMask_shake_last_len;
+                    shake256_cache_rd <= expandMask_shake_cache_rd;
+                    shake256_cache_wr <= expandMask_shake_cache_wr;
+                    shake256_out_ready <= expandMask_shake_out_ready;
+
+                    expandMask_shake_data_out <= shake256_data_out;
+                    expandMask_shake_out_valid <= shake256_out_valid;
+                    expandMask_shake_in_ready <= shake256_in_ready;
+
+                    if(expandMask_start) begin
+                        expandMask_start <= 0;
+                        shake256_rst <= 0;
+                        shake256_cache_rst <= 0;
+                        //in_valid = 1;
+                        expandMask_rho <= ram_dout_b_data;
+                        ram_addr_b_data <= ram_addr_b_data + 1;
+                    end else if(ram_addr_b_data < RHO_PP_END_OFFSET) begin
+                        //in_valid = 1;
+                        expandMask_rho <= ram_dout_b_data;
+                        ram_addr_b_data <= ram_addr_b_data + 1;
+                    end else if (expandMask_done) begin //setup for next state
+                        shake256_rst <= 1;
+                    end
                 end
                 CALCULATE_W_0: begin
                 end
@@ -623,6 +683,7 @@ module Sign_internal #(
                 CALCULATE_W_2: begin
                 end
                 HIGH_BITS_W: begin
+                    //TODO
                 end
                 HASH_COMMITMENT: begin
                 end
