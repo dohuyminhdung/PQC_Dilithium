@@ -455,9 +455,9 @@ module KeyGen_internal #(
                     end
                 end
                 EXPAND_A: begin
-                    ram_we_a_data <= expandA_ram_we;
-                    ram_addr_a_data <= expandA_ram_addr;
-                    ram_din_a_data <= expandA_ram_din;
+                    ram_we_a_ntt <= expandA_ram_we;
+                    ram_addr_a_ntt <= expandA_ram_addr;
+                    ram_din_a_ntt <= expandA_ram_din;
 
                     //For ExpandA's absorb state, may need refactor that this state feed rho instead of the module
                     shake128_rst <= expandA_shake_rst;
@@ -476,25 +476,22 @@ module KeyGen_internal #(
                     if(expandA_start) begin                 //at this clock, SHAKE begin to reset
                         expandA_start <= 0;
                         shake128_rst <= 0;
-                        ram_addr_a_data <= RHO_BASE_OFFSET; //setup first absorb block of rho
                         shake128_cache_rst <= 0;
-                        // in_valid <= 1;
-                        expandA_rho <= ram_dout_a_data;     //ready first block of rho for expandA
-                        ram_addr_a_data <= ram_addr_a_data + 1; 
+                        ram_addr_a_data <= RHO_BASE_OFFSET; //setup first absorb block of rho 
                     end else if(ram_addr_a_data < RHO_END_OFFSET) begin
                         // in_valid <= 1;
                         expandA_rho <= ram_dout_a_data;     //feed next block data of rho
                         ram_addr_a_data <= ram_addr_a_data + 1;
                     end else if (expandA_done) begin        //wait done and setup for next ExpandS state
-                            expandS_start <= 1;
-                            shake256_cache_rst <= 1;
-                            shake256_rst <= 1;
+                        expandS_start <= 1;
+                        shake256_cache_rst <= 1;
+                        shake256_rst <= 1;
                     end
                 end
                 EXPAND_S: begin
-                    ram_we_a_data <= expandS_ram_we;
-                    ram_addr_a_data <= expandS_ram_addr;
-                    ram_din_a_data <= expandS_ram_din;
+                    ram_we_a_ntt <= expandS_ram_we;
+                    ram_addr_a_ntt <= expandS_ram_addr;
+                    ram_din_a_ntt <= expandS_ram_din;
 
                     //For ExpandS's absorb state, may need refactor that this state feed rho instead of the module
                     shake256_rst <= expandS_shake_rst;
@@ -513,11 +510,8 @@ module KeyGen_internal #(
                     if(expandS_start) begin                             //at this clock, SHAKE begin to reset
                         expandS_start <= 0;
                         shake256_rst <= 0;
-                        ram_addr_a_data <= RHO_PRIME_BASE_OFFSET;       //setup first absorb block of rho
                         shake256_cache_rst <= 0;
-                        // in_valid <= 1;
-                        expandA_rho <= ram_dout_a_data;                 //ready first block of rho for expandS
-                        ram_addr_a_data <= ram_addr_a_data + 1;
+                        ram_addr_a_data <= RHO_PRIME_BASE_OFFSET;       //setup first absorb block of rho
                     end else if(ram_addr_a_data < RHO_PRIME_END_OFFSET) begin
                         // in_valid <= 1;
                         expandS_rho <= ram_dout_a_data;             //feed next block data of rho'

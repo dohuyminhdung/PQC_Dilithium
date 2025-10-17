@@ -27,6 +27,8 @@ def decompose_lut():
         sys.stdout = f
         stage = -1
         minus = -1
+        negative = -1
+        negative_flag = 1
         print()
         for i in range(0, ML_DSA_87.q):
             r1, r0 = ML_DSA_87.Decompose(i)
@@ -34,10 +36,13 @@ def decompose_lut():
                 s1 += (f"i = {i}: HighBits = {r1}\n")
                 stage = r1
             if minus != (i - r0)//(2*ML_DSA_87.gamma2):
-                minus = minus = (i - r0)//(2*ML_DSA_87.gamma2)
+                minus = (i - r0)//(2*ML_DSA_87.gamma2)
                 s2 += (f"i = {i}: LowBits = {minus}\n")
-            if r0 < 0:
-                s3 += (f"i = {i}: LowBits = {r0}\n")
+
+            if negative_flag != (r0 < 0):
+                negative = (i - r0)//(2*ML_DSA_87.gamma2)
+                s3 += (f"i = {i}: r1 = {r1}, r0 = {r0}, LowBits = {negative}\n")
+            negative_flag = (r0 < 0)
         print(s1)
         print(s2)
         print(s3)
