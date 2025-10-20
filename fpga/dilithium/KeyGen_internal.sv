@@ -3,7 +3,7 @@
 // Generate a public - private key pair from a seed 𝜉 (xi)
 // Input: a 32-byte random string xi
 // Output: Public key pk, private key sk
-
+`define ENCODE_SECRET_KEY
 module KeyGen_internal #(
     //ML-DSA87 parameters
     parameter int Q = 8380417,
@@ -17,24 +17,47 @@ module KeyGen_internal #(
     parameter int WORD_WIDTH = 64,
     parameter int TOTAL_WORD = 4096,
     parameter int DATA_ADDR_WIDTH = $clog2(TOTAL_WORD),
+
     parameter int RHO_BASE_OFFSET = 0,          //seed rho for expandA
+    parameter int RHO_END_OFFSET = RHO_BASE_OFFSET + (32*8/WORD_WIDTH),
+
     parameter int RHO_PRIME_BASE_OFFSET = 0,    //seed rho' for expandS
+    parameter int RHO_PRIME_END_OFFSET = RHO_PRIME_BASE_OFFSET + (64*8/WORD_WIDTH),
+
     parameter int PUBLIC_KEY_BASE_OFFSET = 0,   //rho, t1
-    parameter int PUBLIC_KEY_SIZE = (32 + 32 * K * ($clog2(q-1) - D)) * 8, //2592 bytes for ML-DSA87
+    parameter int PUBLIC_KEY_SIZE = (32 + 32 * K * ($clog2(Q-1) - D)) * 8, //2592 bytes for ML-DSA87
+    parameter int PUBLIC_KEY_END_OFFSET = PUBLIC_KEY_BASE_OFFSET + (PUBLIC_KEY_SIZE/WORD_WIDTH),
+
     parameter int SECRET_KEY_BASE_OFFSET = 0,   //rho, K, tr, s1.encode, s2.encode, t0
+    parameter int SECRET_KEY_SIZE = (32 + 32 + 64 + 32 * ((K+L) * $clog2(ETA*2+1) + D * K)), //4896 bytes for ML-DSA87
+    parameter int SECRET_KEY_END_OFFSET = SECRET_KEY_BASE_OFFSET + SECRET_KEY_SIZE,  
+
     parameter int K_BASE_OFFSET = SECRET_KEY_BASE_OFFSET + (32*8/WORD_WIDTH),   //K is use for signing
-    parameter int TR_BASE_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH)            //tr is use for signing
+    parameter int K_END_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH),
+
+    parameter int TR_BASE_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH),           //tr is use for signing
+    parameter int TR_END_OFFSET  = TR_BASE_OFFSET + (64*8/WORD_WIDTH),
     //NTT data RAM parameters
     parameter int COEFF_WIDTH = 24,
     parameter int COEFF_PER_WORD = 4,
     parameter int WORD_COEFF = COEFF_WIDTH * COEFF_PER_WORD,
     parameter int TOTAL_COEFF = 4096,
     parameter int NTT_ADDR_WIDTH = $clog2(TOTAL_COEFF),
+
     parameter int MATRIX_A_BASE_OFFSET = 0,     //matrixA           from expandA 
+    parameter int MATRIX_A_END_OFFSET = MATRIX_A_BASE_OFFSET + (K*L*N/COEFF_PER_WORD),
+
     parameter int VECTOR_S_BASE_OFFSET = 0,     //vector s1, s2     from expandS
+    parameter int VECTOR_S_TOTAL_WORD = (K+L)*N/COEFF_PER_WORD,
+    parameter int VECTOR_S_END_OFFSET = VECTOR_S_BASE_OFFSET + VECTOR_S_TOTAL_WORD,
     parameter int VECTOR_S1_BASE_OFFSET = VECTOR_S_BASE_OFFSET,
-    parameter int VECTOR_S2_BASE_OFFSET = VECTOR_S1_BASE_OFFSET + (L*N/COEFF_PER_WORD);
-    parameter int VECTOR_T_BASE_OFFSET = 0,     //vector t          from calculating t = A*s1 + s2      
+    parameter int VECTOR_S2_BASE_OFFSET = VECTOR_S1_BASE_OFFSET + (L*N/COEFF_PER_WORD),
+    parameter int VECTOR_S1_END_OFFSET = VECTOR_S2_BASE_OFFSET,
+    parameter int VECTOR_S2_END_OFFSET = VECTOR_S_END_OFFSET,
+
+    parameter int VECTOR_T_BASE_OFFSET = 0,     //vector t          from calculating t = A*s1 + s2   
+    parameter int VECTOR_T_TOTAL_WORD = K * N / COEFF_PER_WORD,
+    parameter int VECTOR_T_END_OFFSET = VECTOR_T_BASE_OFFSET + VECTOR_T_TOTAL_WORD,
     /* Others BASE OFFSET if need here */
     //TODO
     //NTT calculating parameters
@@ -58,7 +81,7 @@ module KeyGen_internal #(
     output reg                          ram_we_b_data,
     output reg  [$clog2(TOTAL_WORD):0]  ram_addr_b_data,
     output reg  [WORD_WIDTH-1:0]        ram_din_b_data,
-    input  wire [WORD_WIDTH-1:0]        ram_dout_a_data,
+    input  wire [WORD_WIDTH-1:0]        ram_dout_b_data,
     //NTT data RAM signals
     output reg                          ram_we_a_ntt,
     output reg  [$clog2(TOTAL_COEFF):0] ram_addr_a_ntt,
@@ -99,6 +122,7 @@ module KeyGen_internal #(
     //TODO
 );
     // FSM state encoding
+    reg  [4:0] state, next_state;
     localparam IDLE             = 5'd0;
     localparam ABSORB_XI        = 5'd1;
     localparam SQUEEZE_RHO      = 5'd2;
@@ -114,12 +138,13 @@ module KeyGen_internal #(
     localparam CALCULATE_T_3    = 5'd10;    //calculate INTT(t)
     localparam PK_ENCODE_RHO    = 5'd11;
     localparam PK_ENCODE_T1     = 5'd12;
+`ifdef ENCODE_SECRET_KEY
     localparam SK_ENCODE_RHO    = 5'd13;
     localparam SK_ENCODE_TR_0   = 5'd14;
     localparam SK_ENCODE_TR_1   = 5'd15;
     localparam SK_ENCODE_S      = 5'd16;
     localparam SK_ENCODE_T0     = 5'd17;
-    reg  [4:0] state, next_state;
+`endif //ENCODE_SECRET_KEY
 
     //ExpandA instance
     reg                     expandA_start;
@@ -130,15 +155,15 @@ module KeyGen_internal #(
     wire [WORD_COEFF-1:0]       expandA_ram_din;
     wire                            expandA_shake_rst;
     wire [DATA_IN_BITS-1:0]         expandA_shake_data_in;
-    wire                            expandA_shake_in_valid,
-    wire                            expandA_shake_in_last,
-    wire [$clog2(DATA_IN_BITS):0]   expandA_shake_last_len, 
-    wire                            expandA_shake_cache_rd,
-    wire                            expandA_shake_cache_wr,
-    wire                            expandA_shake_out_ready,
-    reg  [DATA_OUT_BITS-1:0]        expandA_shake_data_out,
-    reg                             expandA_shake_out_valid,
-    reg                             expandA_shake_in_ready
+    wire                            expandA_shake_in_valid;
+    wire                            expandA_shake_in_last;
+    wire [$clog2(DATA_IN_BITS):0]   expandA_shake_last_len; 
+    wire                            expandA_shake_cache_rd;
+    wire                            expandA_shake_cache_wr;
+    wire                            expandA_shake_out_ready;
+    reg  [DATA_OUT_BITS-1:0]        expandA_shake_data_out;
+    reg                             expandA_shake_out_valid;
+    reg                             expandA_shake_in_ready;
     ExpandA #( .K(K), .L(L),        .COEFF_PER_WORD(COEFF_PER_WORD),
         .WORD_WIDTH(WORD_WIDTH),    .TOTAL_WORD(TOTAL_WORD),    .RHO_BASE_OFFSET(RHO_BASE_OFFSET),
         .COEFF_WIDTH(COEFF_WIDTH),  .TOTAL_COEFF(TOTAL_COEFF),  .MATRIX_A_BASE_OFFSET(MATRIX_A_BASE_OFFSET)
@@ -206,49 +231,28 @@ module KeyGen_internal #(
     /* ==================== INTERNAL SIGNALS ==================== */
     //absorb xi
     reg [$clog2(SEED_SIZE):0] feed_cnt;
-    //squeze rho
-    localparam SQUEEZE_RHO_BLOCK = 32*8 / DATA_IN_BITS;
-    localparam RHO_END_OFFSET    = RHO_BASE_OFFSET + SQUEEZE_RHO_BLOCK; 
-    //squeeze rho_prime
-    localparam SQUEEZE_RHO_PRIME_BLOCK = 64*8 / DATA_IN_BITS;
-    localparam RHO_PRIME_END_OFFSET    = RHO_PRIME_BASE_OFFSET + SQUEEZE_RHO_PRIME_BLOCK;
-    //squueze K
-    localparam SQUEEZE_K_BLOCK = 32*8 / DATA_IN_BITS;
-    localparam K_END_OFFSET    = K_BASE_OFFSET + SQUEEZE_K_BLOCK;
-    //expandA
-    localparam EXPAND_A_RHO_BLOCK = RHO_BASE_OFFSET + 32*8 / DATA_WIDTH;
-    //expandS
-    localparam EXPAND_S_RHO_BLOCK = RHO_PRIME_BASE_OFFSET + 64*8 / DATA_WIDTH;
-    localparam VECTOR_S_TOTAL_WORD = (K+L)*N/COEFF_PER_WORD;
-    localparam VECTOR_S_END_OFFSET = VECTOR_S_BASE_OFFSET + VECTOR_S_TOTAL_WORD;
-    localparam VECTOR_S1_END_OFFSET = VECTOR_S2_BASE_OFFSET;
-    localparam VECTOR_S2_END_OFFSET = VECTOR_S_END_OFFSET;
     // pk_encode_rho
     reg pk_rho_encode_start; //init = 0
     //pk_encode_t1 + sk_encode_t0
-    localparam VECTOR_T_TOTAL_WORD = K * N / COEFF_PER_WORD;
-    localparam VECTOR_T_END_OFFSET = VECTOR_T_BASE_OFFSET + VECTOR_T_TOTAL_WORD;
-    localparam T1_COEFF_WORD_LEN = 10 * COEFF_WIDTH; //refer OTHER FUNCTIONS to know why
-    localparam T0_COEFF_WORD_LEN = 13 * COEFF_WIDTH; //refer OTHER FUNCTIONS to know why
-    reg [112:0] t_buffer;       //112 = max(DATA_WIDTH + T1_COEFF_WORD_LEN - GCD(DATA_WIDTH, T1_COEFF_WORD_LEN), DATA_WIDTH + T0_COEFF_WORD_LEN - GCD(DATA_WIDTH, T0_COEFF_WORD_LEN))
+    // localparam T1_COEFF_WORD_LEN = (23-D) * COEFF_WIDTH;
+    // localparam T0_COEFF_WORD_LEN = D      * COEFF_WIDTH;
+    reg [112:0] t_buffer;       //112 = max(DATA_WIDTH + T1_COEFF_WORD_LEN - GCD(DATA_WIDTH, T1_COEFF_WORD_LEN), 
+                                //          DATA_WIDTH + T0_COEFF_WORD_LEN - GCD(DATA_WIDTH, T0_COEFF_WORD_LEN))
     reg [6  :0] t_buffer_cnt;   //$clog2(112)
-    //sk_encode_tr
-    localparam PUBLIC_KEY_END_OFFSET = PUBLIC_KEY_BASE_OFFSET + (PUBLIC_KEY_SIZE/WORD_WIDTH);
-    localparam TR_END_OFFSET         = TR_BASE_OFFSET + 64 * 8;
     //sk_encode_s
     localparam ETA_PACK_LEN = $clog2(ETA*2+1);
     localparam S_COEFF_WORD_LEN = ETA_PACK_LEN * COEFF_PER_WORD;
+`ifdef ENCODE_SECRET_KEY
     reg [6 :0] s_buffer_cnt;
     reg [95:0] s_buffer;
+`endif //ENCODE_SECRET_KEY
     /* ==================== INTERNAL SIGNALS ==================== */
 
     /* ====================  OTHER FUNCTIONS ==================== */
     // Algorithm 35: Power-of-two rounding, FIPS 204 page 40, slide 50
     // Power2Round(r) = (r1, r0) such that r = r1*2^d + r0 mod q 
-    // Input: integer r in Z_q              // Output: integer (r1, r0)
-    //Calculating bit width for coeff in t1 for pkEncode:
-    //Step 3: SimpleBitPack(polynomial t1[i], 2^(bitlen(q-1)-d)-1)
-    //      = SimpleBitPack(    256 coeff   ,       1023         ) => 10 bit for each coeff
+    // Input:  integer r in Z_q
+    // Output: integer (r1, r0)
     function [9:0] Power2Round_t1;
         input [COEFF_WIDTH-1:0] r;
         logic [12:0] r0_raw;
@@ -262,15 +266,14 @@ module KeyGen_internal #(
         end
     endfunction
 
-    //Calculating bit width for coeff in t0 for skEncode: 23 - 10 = 13 :DD
     function [12:0] Power2Round_t0;
         input [COEFF_WIDTH-1:0] r;
         logic [12:0] r0_raw;
         logic adjust;
         begin
             r0_raw = r[12:0];
-            adjust = (r0_raw > 13'd4096)
-            Power2Round_t0 = adjust ? (r0_raw - 13'd8192) : r0_raw;
+            adjust = (r0_raw > 13'd4096);
+            Power2Round_t0 = adjust ? (r0_raw - 14'd8192) : r0_raw;
         end
     endfunction
 
@@ -282,11 +285,11 @@ module KeyGen_internal #(
         input [COEFF_WIDTH-1:0] s;
         begin
             case(s)
-                COEFF_WIDTH'd8380415:   BitPack_vector_s = ETA_PACK_LEN'(ETA + 2);  //-2
-                COEFF_WIDTH'd8380416:   BitPack_vector_s = ETA_PACK_LEN'(ETA + 1);  //-1
-                COEFF_WIDTH'd0:         BitPack_vector_s = ETA_PACK_LEN'(ETA);      //0
-                COEFF_WIDTH'd1:         BitPack_vector_s = ETA_PACK_LEN'(ETA - 1);  //1
-                COEFF_WIDTH'd2:         BitPack_vector_s = ETA_PACK_LEN'(ETA - 2);  //2
+                24'd8380415:    BitPack_vector_s = ETA_PACK_LEN'(ETA + 2);  //-2
+                24'd8380416:    BitPack_vector_s = ETA_PACK_LEN'(ETA + 1);  //-1
+                24'd0:          BitPack_vector_s = ETA_PACK_LEN'(ETA);      //0
+                24'd1:          BitPack_vector_s = ETA_PACK_LEN'(ETA - 1);  //1
+                24'd2:          BitPack_vector_s = ETA_PACK_LEN'(ETA - 2);  //2
             endcase
         end
     endfunction
@@ -308,7 +311,7 @@ module KeyGen_internal #(
                     next_state = ABSORB_XI;
             end
             ABSORB_XI: begin
-                if (in_ready && (feed_cnt >= SEED_SIZE)) 
+                if (shake256_in_ready && (feed_cnt >= SEED_SIZE)) 
                     next_state = SQUEEZE_RHO;
             end
             SQUEEZE_RHO: begin
@@ -357,8 +360,13 @@ module KeyGen_internal #(
             end
             PK_ENCODE_T1: begin
                 if(ram_addr_b_ntt >= VECTOR_T_END_OFFSET)
+                `ifdef ENCODE_SECRET_KEY
                     next_state = SK_ENCODE_RHO;
+                `else   //ENCODE_SECRET_KEY
+                    next_state = IDLE
+                `endif //ENCODE_SECRET_KEY
             end
+`ifdef ENCODE_SECRET_KEY
             SK_ENCODE_RHO: begin
                 if(ram_addr_b_data >= RHO_END_OFFSET-1)
                     next_state = SK_ENCODE_TR_0; 
@@ -379,6 +387,7 @@ module KeyGen_internal #(
                 if(ram_addr_b_ntt >= VECTOR_T_END_OFFSET)
                     next_state = IDLE;
             end
+`endif //ENCODE_SECRET_KEY
         endcase
     end
 
@@ -396,6 +405,9 @@ module KeyGen_internal #(
                     end
                 end
                 ABSORB_XI: begin
+                    shake256_out_ready <= 0;
+                    shake128_rst <= 0;
+                    shake256_rst <= 0;
                     if(shake256_in_ready) begin
                         shake256_in_valid <= 1;
                         if(feed_cnt + DATA_IN_BITS < SEED_SIZE) begin
@@ -408,10 +420,6 @@ module KeyGen_internal #(
                             shake256_in_last <= 1;
                             ram_addr_a_data <= RHO_BASE_OFFSET - 1; //setup for next state
                         end 
-                    end else begin
-                        shake256_out_ready <= 0;
-                        shake128_rst <= 0;
-                        shake256_rst <= 0;
                     end
                 end
                 SQUEEZE_RHO: begin
@@ -447,9 +455,9 @@ module KeyGen_internal #(
                     end
                 end
                 EXPAND_A: begin
-                    ram_we_a_data <= expandA_ram_we;
-                    ram_addr_a_data <= expandA_ram_addr;
-                    ram_din_a_data <= expandA_ram_din;
+                    ram_we_a_ntt <= expandA_ram_we;
+                    ram_addr_a_ntt <= expandA_ram_addr;
+                    ram_din_a_ntt <= expandA_ram_din;
 
                     //For ExpandA's absorb state, may need refactor that this state feed rho instead of the module
                     shake128_rst <= expandA_shake_rst;
@@ -467,29 +475,23 @@ module KeyGen_internal #(
 
                     if(expandA_start) begin                 //at this clock, SHAKE begin to reset
                         expandA_start <= 0;
-                        // shake128_cache_rst <= 0;
                         shake128_rst <= 0;
-                        ram_addr_a_data <= RHO_BASE_OFFSET; //setup first absorb block of rho
-                    end else if(shake128_cache_rst) begin   //at this clock, SHAKE is IDLE, ready data to feed for ABSORB state
-                                                            //check cache_rst as a handshake/lookup SHAKE current state
                         shake128_cache_rst <= 0;
-                        // in_valid <= 1;
-                        expandA_rho <= ram_dout_a_data;     //ready first block of rho for expandA
-                        ram_addr_a_data <= ram_addr_a_data + 1; 
-                    end else if(ram_addr_a_data < EXPAND_A_RHO_BLOCK) begin
+                        ram_addr_a_data <= RHO_BASE_OFFSET; //setup first absorb block of rho 
+                    end else if(ram_addr_a_data < RHO_END_OFFSET) begin
                         // in_valid <= 1;
                         expandA_rho <= ram_dout_a_data;     //feed next block data of rho
                         ram_addr_a_data <= ram_addr_a_data + 1;
                     end else if (expandA_done) begin        //wait done and setup for next ExpandS state
-                            expandS_start <= 1;
-                            shake256_cache_rst <= 1;
-                            shake256_rst <= 1;
+                        expandS_start <= 1;
+                        shake256_cache_rst <= 1;
+                        shake256_rst <= 1;
                     end
                 end
                 EXPAND_S: begin
-                    ram_we_a_data <= expandS_ram_we;
-                    ram_addr_a_data <= expandS_ram_addr;
-                    ram_din_a_data <= expandS_ram_din;
+                    ram_we_a_ntt <= expandS_ram_we;
+                    ram_addr_a_ntt <= expandS_ram_addr;
+                    ram_din_a_ntt <= expandS_ram_din;
 
                     //For ExpandS's absorb state, may need refactor that this state feed rho instead of the module
                     shake256_rst <= expandS_shake_rst;
@@ -507,16 +509,10 @@ module KeyGen_internal #(
 
                     if(expandS_start) begin                             //at this clock, SHAKE begin to reset
                         expandS_start <= 0;
-                        // shake256_cache_rst <= 0;
                         shake256_rst <= 0;
-                        ram_addr_a_data <= RHO_PRIME_BASE_OFFSET;       //setup first absorb block of rho
-                    end else if(shake256_cache_rst) begin               //at this clock, SHAKE is IDLE, ready data to feed for ABSORB state
-                                                                        //check cache_rst as a handshake/lookup SHAKE current state
                         shake256_cache_rst <= 0;
-                        // in_valid <= 1;
-                        expandA_rho <= ram_dout_a_data;                 //ready first block of rho for expandS
-                        ram_addr_a_data <= ram_addr_a_data + 1;
-                    end else if(ram_addr_a_data < EXPAND_S_RHO_BLOCK) begin
+                        ram_addr_a_data <= RHO_PRIME_BASE_OFFSET;       //setup first absorb block of rho
+                    end else if(ram_addr_a_data < RHO_PRIME_END_OFFSET) begin
                         // in_valid <= 1;
                         expandS_rho <= ram_dout_a_data;             //feed next block data of rho'
                         ram_addr_a_data <= ram_addr_a_data + 1;
@@ -545,7 +541,7 @@ module KeyGen_internal #(
                 PK_ENCODE_RHO: begin
 //if can not setup in last state, assgin start writing address here
                     if(!pk_rho_encode_start) begin
-                        pk_rho_encode_start <= 1
+                        pk_rho_encode_start <= 1;
                         ram_addr_a_data <= PUBLIC_KEY_BASE_OFFSET-1;    //writing port
                         ram_addr_b_data <= RHO_BASE_OFFSET;             //reading port
                     end else begin
@@ -562,25 +558,30 @@ module KeyGen_internal #(
                     end
                 end
                 PK_ENCODE_T1: begin
-                    if(t_buffer_cnt >= DATA_WIDTH) begin
+                    if(t_buffer_cnt >= WORD_WIDTH) begin
                         //write t1 to public key 
                         ram_we_a_data <= 1;
                         ram_addr_a_data <= ram_addr_a_data + 1;
-                        ram_din_a_data <= t_buffer[0+:DATA_WIDTH];
-                        t_buffer_cnt <= t_buffer_cnt - DATA_WIDTH;
-                        t_buffer <= t_buffer >> DATA_WIDTH;
+                        ram_din_a_data <= t_buffer[0+:WORD_WIDTH];
+                        t_buffer_cnt <= t_buffer_cnt - WORD_WIDTH;
+                        t_buffer <= t_buffer >> WORD_WIDTH;
                     end else if(!(ram_addr_b_ntt >= VECTOR_T_END_OFFSET)) begin
                         ram_addr_b_ntt <= ram_addr_b_ntt + 1;
                         t_buffer_cnt <= t_buffer_cnt + 40;
-                        t_buffer[t_buffer_cnt+:40] <= {    Power2Round_t1(ram_dout_b_ntt[3 * COEFF_WIDTH +: COEFF_WIDTH]),
-                                                            Power2Round_t1(ram_dout_b_ntt[2 * COEFF_WIDTH +: COEFF_WIDTH]),
-                                                            Power2Round_t1(ram_dout_b_ntt[1 * COEFF_WIDTH +: COEFF_WIDTH]),
-                                                            Power2Round_t1(ram_dout_b_ntt[0 * COEFF_WIDTH +: COEFF_WIDTH]) };
+                        t_buffer[t_buffer_cnt+:40] <= { Power2Round_t1(ram_dout_b_ntt[3 * COEFF_WIDTH +: COEFF_WIDTH]),
+                                                        Power2Round_t1(ram_dout_b_ntt[2 * COEFF_WIDTH +: COEFF_WIDTH]),
+                                                        Power2Round_t1(ram_dout_b_ntt[1 * COEFF_WIDTH +: COEFF_WIDTH]),
+                                                        Power2Round_t1(ram_dout_b_ntt[0 * COEFF_WIDTH +: COEFF_WIDTH]) };
                     end else begin
+                    `ifdef ENCODE_SECRET_KEY
                         ram_addr_a_data <= SECRET_KEY_BASE_OFFSET-1;    //writing port
                         ram_addr_b_data <= RHO_BASE_OFFSET;             //reading port
+                    `else //ENCODE_SECRET_KEY
+                        done <= 1;
+                    `endif //ENCODE_SECRET_KEY
                     end
                 end
+`ifdef ENCODE_SECRET_KEY
                 SK_ENCODE_RHO: begin
                     //write rho to private key
                     ram_we_a_data <= 1;                             //enable write
@@ -598,12 +599,11 @@ module KeyGen_internal #(
                     if(shake256_rst) begin                          //at this clock, SHAKE begin to reset
                         //setup for absorb state
                         shake256_rst <= 0;
+                        shake256_cache_rst <= 0;
                         shake256_cache_rd <= 0;
                         shake256_cache_wr <= 0;
                         shake256_out_ready <= 0;
                         ram_addr_b_data <= PUBLIC_KEY_BASE_OFFSET;  //update first reading address for this state
-                    end else if(shake256_cache_rst) begin           //at this clock, SHAKE is IDLE
-                        shake256_cache_rst <= 0;
                     end else if(shake256_in_ready) begin
                         shake256_in_valid <= 1;
                         shake256_data_in <= ram_dout_b_data;
@@ -627,13 +627,13 @@ module KeyGen_internal #(
                     ram_addr_b_ntt <= VECTOR_S_BASE_OFFSET; //reading port
                 end
                 SK_ENCODE_S: begin
-                    if(s_buffer_cnt >= DATA_WIDTH) begin
+                    if(s_buffer_cnt >= WORD_WIDTH) begin
                         //write s1 and s2 to secret key
                         ram_we_a_data <= 1;
                         ram_addr_a_data <= ram_addr_a_data + 1;
-                        ram_din_a_data <= s_buffer[0+:DATA_WIDTH];
-                        s_buffer_cnt <= s_buffer_cnt - DATA_WIDTH;
-                        s_buffer <= s_buffer >> DATA_WIDTH;
+                        ram_din_a_data <= s_buffer[0+:WORD_WIDTH];
+                        s_buffer_cnt <= s_buffer_cnt - WORD_WIDTH;
+                        s_buffer <= s_buffer >> WORD_WIDTH;
                     end else if (!(ram_addr_b_ntt >= VECTOR_S_END_OFFSET)) begin
                         ram_addr_b_ntt <= ram_addr_b_ntt + 1;
                         s_buffer_cnt <= s_buffer_cnt + S_COEFF_WORD_LEN;
@@ -648,24 +648,25 @@ module KeyGen_internal #(
                     end
                 end
                 SK_ENCODE_T0: begin
-                    if(t_buffer_cnt >= DATA_WIDTH) begin
+                    if(t_buffer_cnt >= WORD_WIDTH) begin
                         //write t0 to private key
                         ram_we_a_data <= 1;
                         ram_addr_a_data <= ram_addr_a_data + 1;
-                        ram_din_a_data <= t_buffer[0+:DATA_WIDTH];
-                        t_buffer_cnt <= t_buffer_cnt - DATA_WIDTH;
-                        t_buffer <= t_buffer >> DATA_WIDTH; 
+                        ram_din_a_data <= t_buffer[0+:WORD_WIDTH];
+                        t_buffer_cnt <= t_buffer_cnt - WORD_WIDTH;
+                        t_buffer <= t_buffer >> WORD_WIDTH; 
                     end else if(!(ram_addr_b_ntt >= VECTOR_T_END_OFFSET)) begin
                         ram_addr_b_ntt <= ram_addr_b_ntt + 1;
                         t_buffer_cnt <= t_buffer_cnt + 52;
-                        t_buffer[t_buffer_cnt+:52] <= {   Power2Round_t0(ram_dout_b_ntt[3 * COEFF_WIDTH +: COEFF_WIDTH]),
-                                                            Power2Round_t0(ram_dout_b_ntt[2 * COEFF_WIDTH +: COEFF_WIDTH]),
-                                                            Power2Round_t0(ram_dout_b_ntt[1 * COEFF_WIDTH +: COEFF_WIDTH]),
-                                                            Power2Round_t0(ram_dout_b_ntt[0 * COEFF_WIDTH +: COEFF_WIDTH]) };
+                        t_buffer[t_buffer_cnt+:52] <= { Power2Round_t0(ram_dout_b_ntt[3 * COEFF_WIDTH +: COEFF_WIDTH]),
+                                                        Power2Round_t0(ram_dout_b_ntt[2 * COEFF_WIDTH +: COEFF_WIDTH]),
+                                                        Power2Round_t0(ram_dout_b_ntt[1 * COEFF_WIDTH +: COEFF_WIDTH]),
+                                                        Power2Round_t0(ram_dout_b_ntt[0 * COEFF_WIDTH +: COEFF_WIDTH]) };
                     end else begin
                         done <= 1;
                     end
                 end
+`endif //ENCODE_SECRET_KEY
             endcase
         end
     end

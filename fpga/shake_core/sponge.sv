@@ -37,19 +37,30 @@ module sponge #(
     );
 
     // FSM state encoding
-    localparam IDLE             = 3'd0;
-    localparam ABSORB_DATA      = 3'd1;
-    localparam PAD_DATA         = 3'd2;
-    localparam SQUEEZE_DATA     = 3'd3;
-    localparam PERMUTE          = 3'd4;
-
-    reg  [2:0] state, next_state;
+    localparam ABSORB_DATA      = 2'd0;
+    localparam PAD_DATA         = 2'd1;
+    localparam SQUEEZE_DATA     = 2'd2;
+    localparam PERMUTE          = 2'd3;
+    reg  [1:0] state, next_state;
 
     // Signals for keccak instance
     reg                     keccak_en;
     reg  [STATE_W-1:0]      state_reg;
     wire [STATE_W-1:0]      state_next;
     wire                    keccak_done;
+    keccak_p #(
+        .LANE       (LANE),
+        .LANES      (LANES),
+        .STATE_W    (STATE_W),
+        .STEP_RND   (STEP_RND)
+    ) keccak_instance (
+        .clk        (clk),
+        .rst        (rst),
+        .en         (keccak_en),
+        .state_in   (state_reg),          
+        .state_out  (state_next),
+        .out_valid  (keccak_done)
+    );
 
     // Signals for Absorbing State
     reg  [$clog2(RATE)-1:0] absorb_block_cnt;
@@ -123,13 +134,15 @@ module sponge #(
     assign squeeze_out = squeeze_block_cnt + DATA_OUT_BITS;
 
     // Signals for Permutating State
+    localparam PERMUTE_THEN_ABSORB  = 2'd0;
+    localparam PERMUTE_THEN_PAD     = 2'd1;
+    localparam PERMUTE_THEN_SQUEEZE = 2'd2;
     reg  [1:0] permute_mode, post_permute_mode; //00: absorb, 01: pad, 10: squeeze
 
     // Sequential state register
     always @(posedge clk) begin
         if (rst) begin
-            // Reset state
-            state <= IDLE;
+            state <= ABSORB_DATA;
         end else begin
             state <= next_state;
         end
@@ -150,34 +163,29 @@ module sponge #(
         next_state = state;
         post_permute_mode = permute_mode;
         case (state)
-            IDLE: begin
-                next_state = ABSORB_DATA;
-            end
-
             ABSORB_DATA: begin 
                 if (in_valid && !in_last) begin
                     if (absorb_block_cnt >= RATE) begin
                         next_state = PERMUTE;
-                        post_permute_mode = 2'b00; //absorb-permute
+                        post_permute_mode = PERMUTE_THEN_ABSORB; //absorb-permute
                     end
                 end else if(in_valid && in_last) begin  
                     next_state = PAD_DATA;
                 end
-
             end
 
             PAD_DATA: begin 
                 next_state = PERMUTE;
 `ifndef PROCESS_AT_BIT_LEVEL
-                post_permute_mode = 2'b10; //after pad permute -> go to squeeze
+                post_permute_mode = PERMUTE_THEN_SQUEEZE; //after pad permute -> go to squeeze
 `else  //PROCESS_AT_BIT_LEVEL                
                 case (overflow)
-                    1'b0: post_permute_mode = 2'b10; //after pad permute -> go to squeeze
+                    1'b0: post_permute_mode = PERMUTE_THEN_SQUEEZE; //after pad permute -> go to squeeze
                     1'b1: begin
                         if(overflow_last_pad == 0)
-                            post_permute_mode = 2'b01; //after pad permute -> go to pad again
+                            post_permute_mode = PERMUTE_THEN_PAD; //after pad permute -> go to pad again
                         else
-                            post_permute_mode = 2'b10; //after last pad permute -> go to squeeze
+                            post_permute_mode = PERMUTE_THEN_SQUEEZE; //after last pad permute -> go to squeeze
                     end
                 endcase
 `endif //PROCESS_AT_BIT_LEVEL
@@ -186,7 +194,7 @@ module sponge #(
             SQUEEZE_DATA: begin
                 if (squeeze_out >= RATE) begin
                     next_state = PERMUTE;
-                    post_permute_mode = 2'b10; //squeeze-permute 
+                    post_permute_mode = PERMUTE_THEN_SQUEEZE; //squeeze-permute 
                 end
             end        
 
@@ -196,12 +204,12 @@ module sponge #(
                         2'b00: next_state = ABSORB_DATA; //absorb
                         2'b01: next_state = PAD_DATA; //padding
                         2'b10: next_state = SQUEEZE_DATA; //squeeze
-                        default: next_state = IDLE;
+                        default: next_state = ABSORB_DATA;
                     endcase
                 end
             end
 
-            default: next_state = IDLE;
+            default: next_state = ABSORB_DATA;
         endcase
     end
 
@@ -209,7 +217,7 @@ module sponge #(
     always @(posedge clk) begin
         if (rst) begin      
             // Output signals
-            data_out    <= DATA_OUT_BITS'hDEADCAFE;
+            data_out    <= 64'hDEADBEEF;
             out_valid   <= 1'b0;
             in_ready    <= 1'b1;
 
@@ -231,32 +239,8 @@ module sponge #(
             // Permute signals
             permute_mode <= 0;
         end else begin 
-            //keccak_en <= start_permutation;
             permute_mode <= post_permute_mode;
             case (state)
-                IDLE: begin
-                    // Output signals
-                    data_out    <= DATA_OUT_BITS'hDEADBEEF;
-                    out_valid   <= 1'b0;
-                    in_ready    <= 1'b1;
-
-                    // keccak instance signals
-                    keccak_en <= 0;
-                    state_reg <= 0;
-
-                    // Absorbing signals
-                    absorb_block_cnt <= 0;
-                    absorb_block <= 0;
-
-                    // Padding signals
-                    last_len_buffer <= 0;
-                    overflow     <= 0;
-                    overflow_last_pad <= 0;
-
-                    // Squeezing signals
-                    squeeze_block_cnt <= 0;
-                end
-
                 ABSORB_DATA: begin 
                     out_valid <= 0;
                     if (in_valid) begin
@@ -321,17 +305,19 @@ module sponge #(
                     keccak_en <= 1'b0; 
                     if (keccak_done) begin
                         case (permute_mode)
-                            2'b00: begin //absorb
+                            PERMUTE_THEN_ABSORB: begin //absorb
                                 state_reg <= state_next;
                                 // absorb_block_cnt <= 0; //already do in PAD_DATA look ahead ABSORB_DATA
                             end
-                            2'b01: begin //padding
+`ifdef PROCESS_AT_BIT_LEVEL
+                            PERMUTE_THEN_PAD: begin //padding
                                 state_reg <= state_next;
                                 if (overflow && !overflow_last_pad)
                                     overflow_last_pad <= 1;
                                 // absorb_block_cnt <= 5 - (RATE - (absorb_block_cnt - DATA_IN_BITS + last_len_buffer));
                             end
-                            2'b10: begin //squeeze 
+`endif
+                            PERMUTE_THEN_SQUEEZE: begin //squeeze 
                                 state_reg <= state_next;
                                 squeeze_block_cnt <= 0;
                             end
@@ -342,19 +328,4 @@ module sponge #(
             endcase
         end
     end
-
-    keccak_p #(
-        .LANE       (LANE),
-        .LANES      (LANES),
-        .STATE_W    (STATE_W),
-        .STEP_RND   (STEP_RND)
-    ) keccak_instance (
-        .clk        (clk),
-        .rst        (rst),
-        .en         (keccak_en),
-        .state_in   (state_reg),          
-        .state_out  (state_next),
-        .out_valid  (keccak_done)
-    );
-
 endmodule
