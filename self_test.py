@@ -19,35 +19,6 @@ xi = bytes([
 msg = b"Hello Dilithium!"
 ctx = b"test_vectors"
 
-def decompose_lut():
-    s1: str = ""
-    s2: str = ""
-    s3: str = ""
-    with open("output.txt", "w", encoding="utf-8") as f:
-        sys.stdout = f
-        stage = -1
-        minus = -1
-        negative = -1
-        negative_flag = 1
-        print()
-        for i in range(0, ML_DSA_87.q):
-            r1, r0 = ML_DSA_87.Decompose(i)
-            if r1 != stage:
-                s1 += (f"i = {i}: HighBits = {r1}\n")
-                stage = r1
-            if minus != (i - r0)//(2*ML_DSA_87.gamma2):
-                minus = (i - r0)//(2*ML_DSA_87.gamma2)
-                s2 += (f"i = {i}: LowBits = {minus}\n")
-
-            if negative_flag != (r0 < 0):
-                negative = (i - r0)//(2*ML_DSA_87.gamma2)
-                s3 += (f"i = {i}: r1 = {r1}, r0 = {r0}, LowBits = {negative}\n")
-            negative_flag = (r0 < 0)
-        print(s1)
-        print(s2)
-        print(s3)
-        sys.stdout = sys.__stdout__ 
-
 def test_full_scheme(xi, msg, ctx):
     with open("output.txt", "w", encoding="utf-8") as f:
         sys.stdout = f
@@ -66,6 +37,58 @@ def test_full_scheme(xi, msg, ctx):
         print("Signature valid: ", str(valid))
 
         sys.stdout = sys.__stdout__ 
+
+def decompose_lut():
+    s1: str = ""
+    s2: str = ""
+    s3: str = ""
+    with open("output.txt", "w", encoding="utf-8") as f:
+        sys.stdout = f
+        stage = -1
+        minus = -1
+        negative = -1
+        negative_flag = 1
+        for i in range(0, ML_DSA_87.q):
+            r1, r0 = ML_DSA_87.Decompose(i)
+            if r1 != stage:
+                s1 += (f"i = {i}: HighBits = {r1}\n")
+                stage = r1
+            if minus != (i - r0)//(2*ML_DSA_87.gamma2):
+                minus = (i - r0)//(2*ML_DSA_87.gamma2)
+                s2 += (f"i = {i}: LowBits = {minus}\n")
+
+            if negative_flag != (r0 < 0):
+                negative = (i - r0)//(2*ML_DSA_87.gamma2)
+                s3 += (f"i = {i}: r1 = {r1}, r0 = {r0}, LowBits = {negative}\n")
+            negative_flag = (r0 < 0)
+        print(s1)
+        print(s2)
+        print(s3)
+        sys.stdout = sys.__stdout__
+
+def use_hint_lut():
+    with open("output.txt", "w", encoding="utf-8") as f:
+        sys.stdout = f
+        r1 = 0
+        
+        last_ans = -1
+        h = 0
+        print("Case 1: h = 0")
+        for i in range(0, ML_DSA_87.q):
+            r1 = ML_DSA_87.UseHint(h, i)
+            if r1 != last_ans:
+                print(f"r = {i} => r1 = {r1}")
+                last_ans = r1
+
+        last_ans = -1
+        h = 1
+        print("Case 2: h = 1")
+        for i in range(0, ML_DSA_87.q):
+            r1 = ML_DSA_87.UseHint(h, i)
+            if r1 != last_ans:
+                print(f"r = {i} => r1 = {r1}")
+                last_ans = r1
+        sys.stdout = sys.__stdout__
 
 def test_sample_in_ball():
     rho = b'\xef\xcd\xab\x90\x78\x56\x34\x12' * 8  #64 bytes
@@ -152,4 +175,5 @@ if __name__ == "__main__":
     # test_expandMask()
     # compare_output("G:/Y4S1/DATN/PQC_Dilithium/output.txt", "G:/Y4S1/DATN/PQC_Dilithium/fpga/dilithium_test_bench/mem_dump.txt")
     # test_full_scheme(xi, msg, ctx)
-    decompose_lut()
+    # decompose_lut()
+    use_hint_lut()

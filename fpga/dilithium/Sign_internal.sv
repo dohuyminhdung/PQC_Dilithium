@@ -58,10 +58,6 @@ module Sign_internal #(
     parameter int TR_BASE_OFFSET = K_BASE_OFFSET + (32*8/WORD_WIDTH),            //tr is use for signing
     parameter int TR_END_OFFSET  = TR_BASE_OFFSET + (64*8/WORD_WIDTH),
 
-    parameter int MESSAGE_BASE_OFFSET = 0,  //message to sign, M' = BytesToBits(IntegerToBytes(0, 1) ∥ IntegerToBytes(|𝑐𝑡𝑥|, 1) ∥ 𝑐𝑡𝑥) ∥ M
-                                            // TR || BytesToBits(IntegerToBytes(0, 1) ∥ IntegerToBytes(|𝑐𝑡𝑥|, 1) ∥ 𝑐𝑡𝑥) ∥ M
-                                            // Let software handle concating ctx with message: TR || M'
-
     parameter int MU_BASE_OFFSET = 0,       //seed after hashing message in step 6
     parameter int MU_END_OFFSET = MU_BASE_OFFSET + (64*8/WORD_WIDTH),
 
@@ -196,7 +192,7 @@ module Sign_internal #(
     localparam NTT_S1               = 1;    //calculate NTT(s1) in step 2
     localparam NTT_S2               = 2;    //calculate NTT(s2) in step 3
     localparam NTT_T0               = 3;    //calculate NTT(t0) in step 4
-    localparam MU_ASBORB_TR         = 4;    //absorb TR in step 6
+    localparam MU_ABSORB_TR         = 4;    //absorb TR in step 6
     localparam MU_ABSORB_MSG        = 5;    //absorb message in step 6
     localparam MU_SQUEEZE           = 6;    //squeeze mu in step 6
     localparam RHO_PP_ABSORB_K      = 7;    //absorb K in step 7
@@ -208,7 +204,7 @@ module Sign_internal #(
     localparam CALCULATE_W_1        = 13;   //calculate A * NTT(y) in step 12
     localparam CALCULATE_W_2        = 14;   //calculate INTT(A * NTT(y)) in step 12
     localparam C_ABSORB_MU          = 15;   //absorb mu in step 15
-    localparam C_ABSORB_HIGH_BITS_W = 16;   //absorb w1Encode(w1) in step 15
+    localparam C_ABSORB_HIGH_BITS_W = 16;   //absorb w1Encode(w1) in step 15, note that w1 = HighBits(w) and w1Encode(w1) = w1[0+:4]
     localparam C_SQUEEZE            = 17;   //squeeze c~ in step 15
     localparam SAMPLE_IN_BALL       = 18;   //calculate vector c in step 16
     localparam NTT_C                = 19;   //calculate NTT(c) in step 17
@@ -441,7 +437,7 @@ module Sign_internal #(
 
     // Calculate Infinity Norm of a word of 4 coefficient (in a polynomial of a vector / matrix)
     function [COEFF_WIDTH-1:0] infinityNorm;
-        input signed [WORD_COEFF-1:0] word_coeff;
+        input [WORD_COEFF-1:0] word_coeff;
         input unsigned [COEFF_WIDTH-1:0] cur_infinityNorm;
         localparam HALF_Q = Q >> 1;
 
@@ -630,7 +626,7 @@ module Sign_internal #(
             end
             NTT_T0: begin
             end
-            MU_ASBORB_TR: begin
+            MU_ABSORB_TR: begin
                 if(ram_addr_b_data >= TR_END_OFFSET-1)
                     next_state = MU_ABSORB_MSG;
             end
@@ -677,7 +673,7 @@ module Sign_internal #(
                     next_state = C_SQUEEZE;
             end
             C_SQUEEZE: begin
-                if(ram_addr_a_data >= CHALLENGE_END_OFFSET)
+                if(ram_addr_a_data >= CHALLENGE_END_OFFSET-1)
                     next_state = SAMPLE_IN_BALL;
             end
             SAMPLE_IN_BALL: begin
@@ -776,7 +772,7 @@ module Sign_internal #(
                 end
                 NTT_T0: begin
                 end
-                MU_ASBORB_TR: begin
+                MU_ABSORB_TR: begin
                     shake256_in_valid <= 0;
                     if(shake256_in_ready) begin
                         shake256_in_valid <= 1;
@@ -903,6 +899,8 @@ module Sign_internal #(
                     end
                     if(ram_addr_b_data >= MU_END_OFFSET-1) begin //setup for next state
                         ram_addr_b_ntt <= VECTOR_W_BASE_OFFSET;
+                        sign_buffer_cnt <= 0;
+                        sign_buffer <= 0;
                     end
                 end
                 C_ABSORB_HIGH_BITS_W: begin
@@ -924,6 +922,7 @@ module Sign_internal #(
                         //turn on last absorb block flag for shake256
                         shake256_in_last <= 1;
                         shake256_last_len <= DATA_IN_BITS;
+                        shake256_out_ready <= 1;
                         //setup for next state
                         ram_addr_a_data <= CHALLENGE_BASE_OFFSET-1;
                     end
@@ -936,7 +935,7 @@ module Sign_internal #(
                         ram_addr_a_data <= ram_addr_a_data + 1;
                         ram_din_a_data <= shake256_data_out;
                     end
-                    if(ram_addr_a_data >= CHALLENGE_END_OFFSET) begin //setup for next state
+                    if(ram_addr_a_data >= CHALLENGE_END_OFFSET-1) begin //setup for next state
                         sampleInBall_start <= 1;
                         shake256_rst <= 1;
                     end

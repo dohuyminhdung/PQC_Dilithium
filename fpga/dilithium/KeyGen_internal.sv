@@ -124,26 +124,26 @@ module KeyGen_internal #(
     // FSM state encoding
     reg  [4:0] state, next_state;
     localparam IDLE             = 5'd0;
-    localparam ABSORB_XI        = 5'd1;
-    localparam SQUEEZE_RHO      = 5'd2;
-    localparam SQUEEZE_RHO_PRIME= 5'd3;
-    localparam SQUEEZE_K        = 5'd4;
-    localparam EXPAND_A         = 5'd5;
-    localparam EXPAND_S         = 5'd6;
+    localparam ABSORB_XI        = 5'd1;     //absorb seed xi in step 1
+    localparam SQUEEZE_RHO      = 5'd2;     //squeeze rho in step 1
+    localparam SQUEEZE_RHO_PRIME= 5'd3;     //squeeze rho' in step 1
+    localparam SQUEEZE_K        = 5'd4;     //squeeze K in step 1
+    localparam EXPAND_A         = 5'd5;     //generate matrix A in step 3
+    localparam EXPAND_S         = 5'd6;     //generate vector s1, s2 in step 4
     //define more state in fsm if need
     //TODO
-    localparam CALCULATE_T_0    = 5'd7;     //calculate NTT(s1)
-    localparam CALCULATE_T_1    = 5'd8;     //calculate (A * s1)
-    localparam CALCULATE_T_2    = 5'd9;     //calculate NTT(t) = (A * s1) + s2
-    localparam CALCULATE_T_3    = 5'd10;    //calculate INTT(t)
-    localparam PK_ENCODE_RHO    = 5'd11;
-    localparam PK_ENCODE_T1     = 5'd12;
+    localparam CALCULATE_T_0    = 5'd7;     //calculate ntt(s1) in step 5
+    localparam CALCULATE_T_1    = 5'd8;     //calculate A * ntt(s1) in step 5
+    localparam CALCULATE_T_2    = 5'd9;     //calculate NTT(t) = (A * ntt(s1)) + s2 in step 5
+    localparam CALCULATE_T_3    = 5'd10;    //calculate INTT((A * ntt(s1)) + s2) in step 5
+    localparam PK_ENCODE_RHO    = 5'd11;    //encode rho in step 8
+    localparam PK_ENCODE_T1     = 5'd12;    //encode vector t1 in step 8
 `ifdef ENCODE_SECRET_KEY
-    localparam SK_ENCODE_RHO    = 5'd13;
-    localparam SK_ENCODE_TR_0   = 5'd14;
-    localparam SK_ENCODE_TR_1   = 5'd15;
-    localparam SK_ENCODE_S      = 5'd16;
-    localparam SK_ENCODE_T0     = 5'd17;
+    localparam SK_ENCODE_RHO    = 5'd13;    //encode rho in step 10
+    localparam SK_ENCODE_TR_0   = 5'd14;    //absorb pk in step 9
+    localparam SK_ENCODE_TR_1   = 5'd15;    //squeeze TR in step 9 and encode TR in step 10 
+    localparam SK_ENCODE_S      = 5'd16;    //encode vector s1, s2 in step 10
+    localparam SK_ENCODE_T0     = 5'd17;    //encode vector t0 in step 10
 `endif //ENCODE_SECRET_KEY
 
     //ExpandA instance
@@ -236,8 +236,8 @@ module KeyGen_internal #(
     //pk_encode_t1 + sk_encode_t0
     // localparam T1_COEFF_WORD_LEN = (23-D) * COEFF_WIDTH;
     // localparam T0_COEFF_WORD_LEN = D      * COEFF_WIDTH;
-    reg [112:0] t_buffer;       //112 = max(DATA_WIDTH + T1_COEFF_WORD_LEN - GCD(DATA_WIDTH, T1_COEFF_WORD_LEN), 
-                                //          DATA_WIDTH + T0_COEFF_WORD_LEN - GCD(DATA_WIDTH, T0_COEFF_WORD_LEN))
+    reg [112:0] t_buffer;       //112 = max(WORD_WIDTH + T1_COEFF_WORD_LEN - GCD(WORD_WIDTH, T1_COEFF_WORD_LEN), 
+                                //          WORD_WIDTH + T0_COEFF_WORD_LEN - GCD(WORD_WIDTH, T0_COEFF_WORD_LEN))
     reg [6  :0] t_buffer_cnt;   //$clog2(112)
     //sk_encode_s
     localparam ETA_PACK_LEN = $clog2(ETA*2+1);
